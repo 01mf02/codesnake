@@ -254,7 +254,7 @@ impl<C, T, S> Block<C, T, S> {
     fn line_no_width(&self) -> usize {
         let max = self.0.last().unwrap().0 + 1;
         // taken from https://stackoverflow.com/a/69302957
-        core::iter::successors(Some(max), |&n| (n >= 10).then(|| n / 10)).count()
+        core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
 
     #[must_use]
@@ -356,9 +356,9 @@ impl<C: Display, T: Display, S: Fn(&Snake) -> String> Display for Block<C, T, S>
 impl<T, S> Labels<T, S> {
     /// Position of the end of the rightmost label.
     fn width(&self) -> usize {
-        let off = |range: &Range<_>| if range.start == range.end { 1 } else { 0 };
-        let inside = self.inside.iter().map(|(range, ..)| range.end + off(range));
+        let inside = self.inside.iter();
         inside
+            .map(|(range, ..)| range.end + usize::from(range.start == range.end))
             .chain(self.incoming.iter().map(|(end, _)| *end))
             .chain(self.outgoing.iter().map(|(start, _)| *start + 1))
             .max()
