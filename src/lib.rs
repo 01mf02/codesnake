@@ -70,7 +70,7 @@
 //!
 //! # Colors
 //!
-//! To color the output, you can use a crate like [`yansi`](https://docs.rs/yansi).
+//! To color the output on a terminal, you can use a crate like [`yansi`](https://docs.rs/yansi).
 //! This allows you to color the snakes of a label as follows:
 //!
 //! ~~~
@@ -78,6 +78,16 @@
 //! use yansi::Paint;
 //! # let (range, text) = (8..14, "this is of type Nat");
 //! let label = Label::new(range, text).with_style(|s: &Snake| s.red().to_string());
+//! ~~~
+//!
+//! For HTML, you can use something like:
+//!
+//! ~~~
+//! use codesnake::{Label, Snake};
+//! # let (range, text) = (8..14, "this is of type Nat");
+//! let label = Label::new(range, text).with_style(|s: &Snake| {
+//!     format!("<span style=\"color:red\">{s}</span>")
+//! });
 //! ~~~
 
 extern crate alloc;
@@ -346,7 +356,8 @@ impl<C: Display, T: Display, S: Fn(&Snake) -> String> Display for Block<C, T, S>
 impl<T, S> Labels<T, S> {
     /// Position of the end of the rightmost label.
     fn width(&self) -> usize {
-        let inside = self.inside.iter().map(|(range, ..)| range.end);
+        let off = |range: &Range<_>| if range.start == range.end { 1 } else { 0 };
+        let inside = self.inside.iter().map(|(range, ..)| range.end + off(range));
         inside
             .chain(self.incoming.iter().map(|(end, _)| *end))
             .chain(self.outgoing.iter().map(|(start, _)| *start + 1))
@@ -368,16 +379,21 @@ impl<T: Display, S: Fn(&Snake) -> String> Labels<T, S> {
         }
 
         for (range, _text, style) in &self.inside {
-            let half_len = (range.end - range.start) / 2;
-            write!(
-                f,
-                "{}{}{}{}",
-                " ".repeat(range.start - len),
-                style(&Snake::Horizontal(half_len)),
-                style(&Snake::HorizontalDown),
-                style(&Snake::Horizontal(range.end - (range.start + half_len + 1)))
-            )?;
-            len = range.end;
+            write!(f, "{}", " ".repeat(range.start - len))?;
+            if range.start == range.end {
+                write!(f, "{}", style(&Snake::ArrowUp))?;
+                len = range.end + 1;
+            } else {
+                let half_len = (range.end - range.start) / 2;
+                write!(
+                    f,
+                    "{}{}{}",
+                    style(&Snake::Horizontal(half_len)),
+                    style(&Snake::HorizontalDown),
+                    style(&Snake::Horizontal(range.end - (range.start + half_len + 1)))
+                )?;
+                len = range.end;
+            }
         }
 
         if let Some((start, style)) = &self.outgoing {
