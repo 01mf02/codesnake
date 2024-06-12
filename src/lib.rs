@@ -1,4 +1,6 @@
 #![no_std]
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 //! Pretty printer for non-overlapping code spans.
 //!
 //! This crate aids you in creating output like the following,
@@ -97,9 +99,11 @@ use alloc::vec::Vec;
 use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 
+/// Associate byte offsets with line numbers.
 pub struct LineIndex<'a>(Vec<(usize, &'a str)>);
 
 impl<'a> LineIndex<'a> {
+    /// Create a new index.
     #[must_use]
     pub fn new(s: &'a str) -> Self {
         // indices of '\n' characters
@@ -151,6 +155,12 @@ pub struct Label<T, S> {
 }
 
 impl<T> Label<T, fn(&Snake) -> String> {
+    /// Create a new label.
+    ///
+    /// The range end must be at greater equal the range start.
+    /// If the range start equals the range end,
+    /// an arrow is drawn at the range start.
+    /// This can be useful to indicate errors that occur at the end of the input.
     pub fn new(range: Range<usize>, text: T) -> Self {
         Self {
             range,
@@ -161,6 +171,7 @@ impl<T> Label<T, fn(&Snake) -> String> {
 }
 
 impl<T, S> Label<T, S> {
+    /// Use a custom style for drawing the label's snake.
     pub fn with_style<S1>(self, style: S1) -> Label<T, S1> {
         Label {
             range: self.range,
@@ -170,6 +181,7 @@ impl<T, S> Label<T, S> {
     }
 }
 
+/// Sequence of numbered code lines with associated labels.
 pub struct Block<C, T, S>(Vec<(usize, C, Labels<T, S>)>);
 
 struct Labels<T, S> {
@@ -189,6 +201,10 @@ impl<T, S> Default for Labels<T, S> {
 }
 
 impl<'a, T, S> Block<&'a str, T, S> {
+    /// Create a new block.
+    ///
+    /// This fails if any label has a range start/end that is
+    /// larger than the length of the string given to `idx`.
     pub fn new(idx: &'a LineIndex, labels: impl IntoIterator<Item = Label<T, S>>) -> Option<Self> {
         let mut lines: Vec<(usize, &str, Labels<T, S>)> = Vec::new();
         for label in labels {
@@ -236,7 +252,9 @@ impl<'a, T, S> Block<&'a str, T, S> {
     }
 }
 
+/// Line that precedes a block.
 pub struct Prologue(usize);
+/// Line that succeeds a block.
 pub struct Epilogue(usize);
 
 impl<C, T, S> Block<C, T, S> {
@@ -253,15 +271,17 @@ impl<C, T, S> Block<C, T, S> {
 
     fn line_no_width(&self) -> usize {
         let max = self.0.last().unwrap().0 + 1;
-        // taken from https://stackoverflow.com/a/69302957
+        // number of digits; taken from https://stackoverflow.com/a/69302957
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
 
+    /// Return the line that precedes the block.
     #[must_use]
     pub fn prologue(&self) -> Prologue {
         Prologue(self.line_no_width())
     }
 
+    /// Return the line that succeeds the block.
     #[must_use]
     pub fn epilogue(&self) -> Epilogue {
         Epilogue(self.line_no_width())
@@ -465,6 +485,7 @@ impl<T: Display, S: Fn(&Snake) -> String> Labels<T, S> {
     }
 }
 
+/// Parts used to draw code spans and lines.
 #[derive(Copy, Clone)]
 pub enum Snake {
     /// "─...─"
