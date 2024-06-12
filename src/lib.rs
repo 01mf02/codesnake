@@ -1,5 +1,5 @@
 #![no_std]
-//! Pretty printer for code spans.
+//! Pretty printer for non-overlapping code spans.
 //!
 //! This crate aids you in creating output like the following,
 //! both for the terminal (ANSI) as well as for the web (HTML):
