@@ -1,0 +1,11 @@
+[package]
+name = "codesnake"
+description = "Pretty printer for code spans"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.62"
+license = "MIT"
+
+[dev-dependencies]
+unicode-width = "0.1.13"
+yansi = "1.0.1"
