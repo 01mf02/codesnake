@@ -162,7 +162,6 @@ pub struct Label<T, S> {
 impl<T> Label<T, fn(&Snake) -> String> {
     /// Create a new label.
     ///
-    /// The range end must be at greater equal the range start.
     /// If the range start equals the range end,
     /// an arrow is drawn at the range start.
     /// This can be useful to indicate errors that occur at the end of the input.
@@ -208,11 +207,27 @@ impl<T, S> Default for Labels<T, S> {
 impl<'a, T, S> Block<&'a str, T, S> {
     /// Create a new block.
     ///
-    /// This fails if any label has a range start/end that is
-    /// larger than the length of the string given to `idx`.
+    /// The label ranges `r` must fulfill the following conditions:
+    ///
+    /// * `r.start <= r.end`.
+    /// * If the length of the string that was used to construct `idx` is `len`, then
+    ///   `r.start <= len` and `r.end <= len`.
+    /// * For any two subsequent labels with ranges `r1` and `r2`,
+    ///   `r1.start < r2.start` and `r1.end <= r2.start`.
+    ///
+    /// If any of these conditions is not fulfilled, this function returns `None`.
     pub fn new(idx: &'a LineIndex, labels: impl IntoIterator<Item = Label<T, S>>) -> Option<Self> {
+        let mut prev_range: Option<Range<_>> = None;
         let mut lines: Vec<(usize, &str, Labels<T, S>)> = Vec::new();
         for label in labels {
+            if label.range.start > label.range.end {
+                return None;
+            }
+            if let Some(prev) = prev_range.replace(label.range.clone()) {
+                if label.range.start <= prev.start || label.range.start < prev.end {
+                    return None;
+                }
+            }
             let start = idx.get(label.range.start)?;
             let end = idx.get(label.range.end)?;
             if lines.last().map_or(true, |last| last.0 != start.line_no) {
