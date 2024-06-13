@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.62"
 license = "MIT"
 keywords = ["error", "diagnostics", "report", "compiler", "programming-language", "pretty"]
-categories = ["value-formatting"]
+categories = ["command-line-utilities", "compilers", "value-formatting"]
 
 [dev-dependencies]
 unicode-width = "0.1.13"
