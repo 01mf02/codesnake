@@ -6,15 +6,20 @@
 //! This crate aids you in creating output like the following,
 //! both for the terminal (ANSI) as well as for the web (HTML):
 //!
+//! <style>
+//! pre span.red   { color: #dc322f; }
+//! pre span.green { color: #859900; }
+//! pre span.blue  { color: #268bd2; }
+//! </style>
 //! <pre style="background-color:#002b36; color:#93a1a1; line-height:1.0; font-size:x-large;">
-//!   ╭─<span style="color:#dc322f">[main.rs]</span>
+//!   ╭─<span class=red>[main.rs]</span>
 //!   │
 //! 1 │ if true { 42 } else { "42" }
-//!   ┆         <span style="color:#859900">───</span><span style="color:#859900">┬</span><span style="color:#859900">──</span>      <span style="color:#268bd2">────</span><span style="color:#268bd2">┬</span><span style="color:#268bd2">───</span>
-//!   ┆            <span style="color:#859900">│</span>            <span style="color:#268bd2">│</span>
-//!   ┆            <span style="color:#859900">╰</span><span style="color:#859900">─────────────────</span> this is of type Nat
-//!   ┆                         <span style="color:#268bd2">│</span>
-//!   ┆                         <span style="color:#268bd2">╰</span><span style="color:#268bd2">────</span> this is of type String
+//!   ┆         <span class=green>───</span><span class=green>┬</span><span class=green>──</span>      <span class=blue>────</span><span class=blue>┬</span><span class=blue>───</span>
+//!   ┆            <span class=green>│</span>            <span class=blue>│</span>
+//!   ┆            <span class=green>╰</span><span class=green>─────────────────</span> this is of type Nat
+//!   ┆                         <span class=blue>│</span>
+//!   ┆                         <span class=blue>╰</span><span class=blue>────</span> this is of type String
 //! ──╯
 //! </pre>
 //!

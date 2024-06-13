@@ -6,13 +6,9 @@ const SRC: &str = r#"if true { 42 } else { "42" }"#;
 
 fn style(html: bool, d: &impl Display, color: Color) -> String {
     if html {
-        let color = match color {
-            Color::Red => "#dc322f",
-            Color::Green => "#859900",
-            Color::Blue => "#268bd2",
-            _ => panic!("{:?}", color),
-        };
-        format!("<span style=\"color:{color}\">{d}</span>",)
+        let mut color = format!("{color:?}");
+        color.make_ascii_lowercase();
+        format!("<span class={color}>{d}</span>",)
     } else {
         d.fg(color).to_string()
     }
