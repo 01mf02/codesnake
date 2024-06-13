@@ -5,11 +5,6 @@ Its name comes from the snake-like appearance of
 the lines that connect code spans with their corresponding labels.
 An example of its output:
 
-<style>
-pre span.red   { color: #dc322f; }
-pre span.green { color: #859900; }
-pre span.blue  { color: #268bd2; }
-</style>
 <pre style="background-color:#002b36; color:#93a1a1; line-height:1.0; font-size:x-large;">
   ╭─<span class=red>[main.rs]</span>
   │
@@ -43,7 +38,7 @@ to produce colored output for the terminal (ANSI) and web (HTML).
   of which the author himself states that it
   [is complex, has bugs and needs rewriting][write.rs].
   codesnake can be considered to be a rewrite of ariadne, focusing on its core features.
-* [codespan-reporting](https://crates.io/crates/codespan-reporting):
+* [`codespan-reporting`](https://crates.io/crates/codespan-reporting):
   This seems to be the spiritual predecessor of ariadne,
   but it looks unfortunately unmaintained, with the last release from 2021.
 * [`miette`](https://crates.io/crates/miette):
