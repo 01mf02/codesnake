@@ -194,7 +194,7 @@ pub struct Block<C, T>(Vec<(usize, C, Labels<T>)>);
 
 struct Labels<T> {
     incoming: Option<(usize, T)>,
-    inside: Vec<(Range<usize>, T, Box<Style>)>,
+    inside: Vec<Label<T>>,
     outgoing: Option<(usize, Box<Style>)>,
 }
 
@@ -224,7 +224,7 @@ impl<'a, T> Block<&'a str, T> {
     pub fn new(idx: &'a LineIndex, labels: impl IntoIterator<Item = Label<T>>) -> Option<Self> {
         let mut prev_range: Option<Range<_>> = None;
         let mut lines: Vec<(usize, &str, Labels<T>)> = Vec::new();
-        for label in labels {
+        for mut label in labels {
             if label.range.start > label.range.end {
                 return None;
             }
@@ -242,8 +242,8 @@ impl<'a, T> Block<&'a str, T> {
             // then we pushed the current line to it
             let line = lines.last_mut()?;
             if end.line_no == line.0 {
-                let inside = (start.bytes..end.bytes, label.text, label.style);
-                line.2.inside.push(inside);
+                label.range = start.bytes..end.bytes;
+                line.2.inside.push(label);
             } else {
                 line.2.outgoing = Some((start.bytes, label.style));
                 let next_labels = Labels {
@@ -259,19 +259,8 @@ impl<'a, T> Block<&'a str, T> {
     /// Apply function to code, then recalculate positions.
     #[must_use]
     pub fn map<C>(self, f: impl Fn(&str) -> C, width: impl Fn(&C) -> usize) -> Block<C, T> {
-        let lines = self.0.into_iter().map(|(line_no, line, labels)| {
-            let width = |i| width(&f(&line[..i]));
-            let incoming = labels.incoming.map(|(end, text)| (width(end), text));
-            let outgoing = labels.outgoing.map(|(start, style)| (width(start), style));
-            let inside = labels.inside.into_iter().map(|(range, text, style)| {
-                let range = width(range.start)..width(range.end);
-                (range, text, style)
-            });
-            let labels = Labels {
-                incoming,
-                inside: inside.collect(),
-                outgoing,
-            };
+        let lines = self.0.into_iter().map(|(line_no, line, mut labels)| {
+            labels.map_positions(|i| width(&f(&line[..i])));
             (line_no, f(line), labels)
         });
         Block(lines.collect())
@@ -405,11 +394,23 @@ impl<T> Labels<T> {
     fn width(&self) -> usize {
         let inside = self.inside.iter();
         inside
-            .map(|(range, ..)| range.end + usize::from(range.start == range.end))
+            .map(|Label { range, .. }| range.end + usize::from(range.start == range.end))
             .chain(self.incoming.iter().map(|(end, _)| *end))
             .chain(self.outgoing.iter().map(|(start, _)| *start + 1))
             .max()
             .unwrap()
+    }
+
+    fn map_positions(&mut self, f: impl Fn(usize) -> usize) {
+        if let Some((end, _text)) = &mut self.incoming {
+            *end = f(*end);
+        }
+        if let Some((start, _style)) = &mut self.outgoing {
+            *start = f(*start);
+        }
+        for Label { range, .. } in &mut self.inside {
+            *range = f(range.start)..f(range.end);
+        }
     }
 }
 
@@ -425,7 +426,7 @@ impl<T: Display> Labels<T> {
             write!(f, " ")?;
         }
 
-        for (range, _text, style) in &self.inside {
+        for Label { range, style, .. } in &self.inside {
             write!(f, "{}", " ".repeat(range.start - len))?;
             if range.start == range.end {
                 write!(f, "{}", style(&Snake::ArrowUp))?;
@@ -468,11 +469,11 @@ impl<T: Display> Labels<T> {
     /// Print something like "... │ ...  │"
     fn fmt_inside_vert(&self, i: usize, f: &mut Formatter) -> fmt::Result {
         let mut len = 0;
-        for (range, ..) in &self.inside[..i] {
+        for Label { range, .. } in &self.inside[..i] {
             write!(f, "{}", " ".repeat(range.end - len))?;
             len = range.end;
         }
-        for (range, _text, style) in &self.inside[i..] {
+        for Label { range, style, .. } in &self.inside[i..] {
             let mid = range.start + (range.end - range.start) / 2;
             write!(f, "{}{}", " ".repeat(mid - len), style(&Snake::Vertical))?;
             len = mid + 1;
@@ -485,7 +486,7 @@ impl<T: Display> Labels<T> {
 
     /// Print something like "╰─...─ text".
     fn fmt_inside_text(&self, i: usize, f: &mut Formatter) -> fmt::Result {
-        let (range, text, style) = &self.inside[i];
+        let Label { range, text, style } = &self.inside[i];
         let mid = range.start + (range.end - range.start) / 2;
         write!(
             f,
