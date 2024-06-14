@@ -100,7 +100,7 @@
 extern crate alloc;
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 
@@ -153,48 +153,52 @@ struct IndexEntry<'a> {
 }
 
 /// Code label with text and style.
-pub struct Label<T, S> {
+pub struct Label<T> {
     range: Range<usize>,
     text: T,
-    style: S,
+    style: Box<Style>,
 }
 
-impl<T> Label<T, fn(&Snake) -> String> {
+type Style = dyn Fn(&Snake) -> String;
+
+impl<T> Label<T> {
     /// Create a new label.
     ///
     /// If the range start equals the range end,
     /// an arrow is drawn at the range start.
     /// This can be useful to indicate errors that occur at the end of the input.
+    #[must_use]
     pub fn new(range: Range<usize>, text: T) -> Self {
         Self {
             range,
             text,
-            style: Snake::to_string,
+            style: Box::new(Snake::to_string),
         }
     }
 }
 
-impl<T, S> Label<T, S> {
+impl<T> Label<T> {
     /// Use a custom style for drawing the label's snake.
-    pub fn with_style<S1>(self, style: S1) -> Label<T, S1> {
+    #[must_use]
+    pub fn with_style(self, style: impl Fn(&Snake) -> String + 'static) -> Self {
         Label {
             range: self.range,
             text: self.text,
-            style,
+            style: Box::new(style),
         }
     }
 }
 
 /// Sequence of numbered code lines with associated labels.
-pub struct Block<C, T, S>(Vec<(usize, C, Labels<T, S>)>);
+pub struct Block<C, T>(Vec<(usize, C, Labels<T>)>);
 
-struct Labels<T, S> {
+struct Labels<T> {
     incoming: Option<(usize, T)>,
-    inside: Vec<(Range<usize>, T, S)>,
-    outgoing: Option<(usize, S)>,
+    inside: Vec<(Range<usize>, T, Box<Style>)>,
+    outgoing: Option<(usize, Box<Style>)>,
 }
 
-impl<T, S> Default for Labels<T, S> {
+impl<T> Default for Labels<T> {
     fn default() -> Self {
         Self {
             incoming: None,
@@ -204,7 +208,7 @@ impl<T, S> Default for Labels<T, S> {
     }
 }
 
-impl<'a, T, S> Block<&'a str, T, S> {
+impl<'a, T> Block<&'a str, T> {
     /// Create a new block.
     ///
     /// The label ranges `r` must fulfill the following conditions:
@@ -216,9 +220,10 @@ impl<'a, T, S> Block<&'a str, T, S> {
     ///   `r1.start < r2.start` and `r1.end <= r2.start`.
     ///
     /// If any of these conditions is not fulfilled, this function returns `None`.
-    pub fn new(idx: &'a LineIndex, labels: impl IntoIterator<Item = Label<T, S>>) -> Option<Self> {
+    #[must_use]
+    pub fn new(idx: &'a LineIndex, labels: impl IntoIterator<Item = Label<T>>) -> Option<Self> {
         let mut prev_range: Option<Range<_>> = None;
-        let mut lines: Vec<(usize, &str, Labels<T, S>)> = Vec::new();
+        let mut lines: Vec<(usize, &str, Labels<T>)> = Vec::new();
         for label in labels {
             if label.range.start > label.range.end {
                 return None;
@@ -252,7 +257,8 @@ impl<'a, T, S> Block<&'a str, T, S> {
     }
 
     /// Apply function to code, then recalculate positions.
-    pub fn map<C>(self, f: impl Fn(&str) -> C, width: impl Fn(&C) -> usize) -> Block<C, T, S> {
+    #[must_use]
+    pub fn map<C>(self, f: impl Fn(&str) -> C, width: impl Fn(&C) -> usize) -> Block<C, T> {
         let lines = self.0.into_iter().map(|(line_no, line, labels)| {
             let width = |i| width(&f(&line[..i]));
             let incoming = labels.incoming.map(|(end, text)| (width(end), text));
@@ -277,9 +283,10 @@ pub struct Prologue(usize);
 /// Line that succeeds a block.
 pub struct Epilogue(usize);
 
-impl<C, T, S> Block<C, T, S> {
+impl<C, T> Block<C, T> {
     /// Apply function to code without recalculating positions.
-    pub fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Block<C1, T, S> {
+    #[must_use]
+    pub fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Block<C1, T> {
         let lines = self.0.into_iter();
         let lines = lines.map(|(line_no, line, labels)| (line_no, f(line), labels));
         Block(lines.collect())
@@ -328,7 +335,7 @@ impl Display for Epilogue {
     }
 }
 
-impl<C: Display, T: Display, S: Fn(&Snake) -> String> Display for Block<C, T, S> {
+impl<C: Display, T: Display> Display for Block<C, T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let line_no_width = self.line_no_width();
         // " ...  │"
@@ -338,7 +345,7 @@ impl<C: Display, T: Display, S: Fn(&Snake) -> String> Display for Block<C, T, S>
             |f: &mut Formatter| write!(f, "{} {}", " ".repeat(line_no_width), Snake::VerticalDots);
         let incoming_space =
             |f: &mut Formatter| write!(f, "{}", if self.some_incoming() { "  " } else { "" });
-        let mut incoming_style: Option<&S> = None;
+        let mut incoming_style: Option<&Style> = None;
         for (no, line, labels) in &self.0 {
             write!(f, "{:line_no_width$} │", no + 1)?;
             if let Some(style) = incoming_style {
@@ -393,7 +400,7 @@ impl<C: Display, T: Display, S: Fn(&Snake) -> String> Display for Block<C, T, S>
     }
 }
 
-impl<T, S> Labels<T, S> {
+impl<T> Labels<T> {
     /// Position of the end of the rightmost label.
     fn width(&self) -> usize {
         let inside = self.inside.iter();
@@ -406,9 +413,9 @@ impl<T, S> Labels<T, S> {
     }
 }
 
-impl<T: Display, S: Fn(&Snake) -> String> Labels<T, S> {
+impl<T: Display> Labels<T> {
     /// Print something like "▲ ─┬─ ... ─┬─  ▲".
-    fn fmt_arrows(&self, incoming: Option<&S>, f: &mut Formatter) -> fmt::Result {
+    fn fmt_arrows(&self, incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
         let mut len = 0;
         if let Some(style) = incoming {
             let (end, _text) = self.incoming.as_ref().unwrap();
@@ -443,7 +450,7 @@ impl<T: Display, S: Fn(&Snake) -> String> Labels<T, S> {
     }
 
     /// Print something like "╰─...─┴─...─ text".
-    fn fmt_incoming(&self, style: &S, f: &mut Formatter) -> fmt::Result {
+    fn fmt_incoming(&self, style: &Style, f: &mut Formatter) -> fmt::Result {
         if let Some((end, text)) = &self.incoming {
             write!(
                 f,
