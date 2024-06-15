@@ -1,4 +1,4 @@
-use codesnake::{Block, Label, LineIndex};
+use codesnake::{Block, CodeWidth, Label, LineIndex};
 use core::fmt::Display;
 use yansi::{Color, Paint};
 
@@ -22,16 +22,18 @@ fn main() {
     */
 
     let html = std::env::args().skip(1).any(|arg| arg == "--html");
-    use unicode_width::UnicodeWidthStr;
     let idx = LineIndex::new(SRC);
-    let snake = |color| Box::new(move |s: &_| style(html, s, color));
+    let color = |color| move |s| style(html, &s, color);
+
     let labels = [
-        Label::new(8..14, "this is of type Nat").with_style(snake(Color::Green)),
-        Label::new(20..28, "this is of type String").with_style(snake(Color::Blue)),
+        Label::new(8..14, "this is of type Nat").with_style(color(Color::Green)),
+        Label::new(20..28, "this is of type String").with_style(color(Color::Blue)),
     ];
-    let block = Block::new(&idx, labels)
-        .unwrap()
-        .map(|s| s.replace('\t', "    "), |s| s.width());
+    let block = Block::new(&idx, labels).unwrap().map_code(|s| {
+        let s = s.replace('\t', "    ");
+        let w = unicode_width::UnicodeWidthStr::width(&*s);
+        CodeWidth::new(s, w)
+    });
     println!(
         "{}{}",
         block.prologue(),

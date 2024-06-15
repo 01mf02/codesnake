@@ -62,12 +62,14 @@
 //! Finally, we can print our code block:
 //!
 //! ~~~
+//! use codesnake::CodeWidth;
 //! # use codesnake::{Block, Label};
 //! # use codesnake::LineIndex;
 //! # let src = r#"if true { 42 } else { "42" }"#;
 //! # let idx = LineIndex::new(src);
 //! # let labels = [(8..14, "this is of type Nat")];
 //! # let block = Block::new(&idx, labels.map(|(range, text)| Label::new(range, text))).unwrap();
+//! let block = block.map_code(|c| CodeWidth::new(c, c.len()));
 //! // yield "  ╭─[main.rs]"
 //! println!("{}{}", block.prologue(), "[main.rs]");
 //! print!("{block}");
@@ -84,7 +86,7 @@
 //! use codesnake::{Label, Snake};
 //! use yansi::Paint;
 //! # let (range, text) = (8..14, "this is of type Nat");
-//! let label = Label::new(range, text).with_style(|s: &Snake| s.red().to_string());
+//! let label = Label::new(range, text).with_style(|s| s.red().to_string());
 //! ~~~
 //!
 //! For HTML, you can use something like:
@@ -92,7 +94,7 @@
 //! ~~~
 //! use codesnake::{Label, Snake};
 //! # let (range, text) = (8..14, "this is of type Nat");
-//! let label = Label::new(range, text).with_style(|s: &Snake| {
+//! let label = Label::new(range, text).with_style(|s| {
 //!     format!("<span style=\"color:red\">{s}</span>")
 //! });
 //! ~~~
@@ -100,7 +102,7 @@
 extern crate alloc;
 
 use alloc::string::{String, ToString};
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 
@@ -153,52 +155,77 @@ struct IndexEntry<'a> {
 }
 
 /// Code label with text and style.
-pub struct Label<T> {
-    range: Range<usize>,
+pub struct Label<C, T> {
+    code: C,
     text: T,
     style: Box<Style>,
 }
 
-type Style = dyn Fn(&Snake) -> String;
-
-impl<T> Label<T> {
+impl<T> Label<Range<usize>, T> {
     /// Create a new label.
     ///
     /// If the range start equals the range end,
     /// an arrow is drawn at the range start.
     /// This can be useful to indicate errors that occur at the end of the input.
     #[must_use]
-    pub fn new(range: Range<usize>, text: T) -> Self {
+    pub fn new(code: Range<usize>, text: T) -> Self {
         Self {
-            range,
+            code,
             text,
-            style: Box::new(Snake::to_string),
+            style: Box::new(|s| s),
         }
     }
 }
 
-impl<T> Label<T> {
+impl<C, T> Label<C, T> {
     /// Use a custom style for drawing the label's snake.
     #[must_use]
-    pub fn with_style(self, style: impl Fn(&Snake) -> String + 'static) -> Self {
-        Label {
-            range: self.range,
+    pub fn with_style(self, style: impl Fn(String) -> String + 'static) -> Self {
+        Self {
+            code: self.code,
             text: self.text,
             style: Box::new(style),
         }
     }
 }
 
-/// Sequence of numbered code lines with associated labels.
-pub struct Block<C, T>(Vec<(usize, C, Labels<T>)>);
-
-struct Labels<T> {
-    incoming: Option<(usize, T)>,
-    inside: Vec<Label<T>>,
-    outgoing: Option<(usize, Box<Style>)>,
+/// Piece of code together with its display width.
+pub struct CodeWidth<C> {
+    code: C,
+    width: usize,
 }
 
-impl<T> Default for Labels<T> {
+impl<C> CodeWidth<C> {
+    /// Create a new piece of code with associated display width.
+    pub fn new(code: C, width: usize) -> Self {
+        CodeWidth { code, width }
+    }
+
+    fn before_after(&self) -> (usize, usize) {
+        let half = self.width / 2;
+        let rest = self.width.checked_sub(half + 1).unwrap_or(0);
+        (half, rest)
+    }
+}
+
+impl<C: Display> Display for CodeWidth<C> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        self.code.fmt(f)
+    }
+}
+
+type Style = dyn Fn(String) -> String;
+
+/// Sequence of numbered code lines with associated labels.
+pub struct Block<C, T>(Vec<(usize, Parts<C, T>)>);
+
+struct Parts<C, T> {
+    incoming: Option<(C, T)>,
+    inside: Vec<(C, Option<(T, Box<Style>)>)>,
+    outgoing: Option<(C, Box<Style>)>,
+}
+
+impl<C, T> Default for Parts<C, T> {
     fn default() -> Self {
         Self {
             incoming: None,
@@ -221,49 +248,67 @@ impl<'a, T> Block<&'a str, T> {
     ///
     /// If any of these conditions is not fulfilled, this function returns `None`.
     #[must_use]
-    pub fn new(idx: &'a LineIndex, labels: impl IntoIterator<Item = Label<T>>) -> Option<Self> {
+    pub fn new<I>(idx: &'a LineIndex, labels: I) -> Option<Self>
+    where
+        I: IntoIterator<Item = Label<Range<usize>, T>>,
+    {
         let mut prev_range: Option<Range<_>> = None;
-        let mut lines: Vec<(usize, &str, Labels<T>)> = Vec::new();
-        for mut label in labels {
-            if label.range.start > label.range.end {
+        let mut lines: Vec<(usize, &str, Parts<Range<usize>, T>)> = Vec::new();
+        for label in labels {
+            if label.code.start > label.code.end {
                 return None;
             }
-            if let Some(prev) = prev_range.replace(label.range.clone()) {
-                if label.range.start <= prev.start || label.range.start < prev.end {
+            if let Some(prev) = prev_range.replace(label.code.clone()) {
+                if label.code.start <= prev.start || label.code.start < prev.end {
                     return None;
                 }
             }
-            let start = idx.get(label.range.start)?;
-            let end = idx.get(label.range.end)?;
+            let start = idx.get(label.code.start)?;
+            let end = idx.get(label.code.end)?;
             if lines.last().map_or(true, |last| last.0 != start.line_no) {
-                lines.push((start.line_no, start.line, Labels::default()));
+                lines.push((start.line_no, start.line, Parts::default()));
             }
             // this must always succeed, because if lines was empty initially,
             // then we pushed the current line to it
             let line = lines.last_mut()?;
             if end.line_no == line.0 {
-                label.range = start.bytes..end.bytes;
-                line.2.inside.push(label);
+                let label = (label.text, label.style);
+                line.2.inside.push((start.bytes..end.bytes, Some(label)));
             } else {
-                line.2.outgoing = Some((start.bytes, label.style));
-                let next_labels = Labels {
-                    incoming: Some((end.bytes, label.text)),
+                line.2.outgoing = Some((start.bytes..start.line.len(), label.style));
+                let next_parts = Parts {
+                    incoming: Some((0..end.bytes, label.text)),
                     ..Default::default()
                 };
-                lines.push((end.line_no, end.line, next_labels));
+                lines.push((end.line_no, end.line, next_parts));
             }
         }
-        Some(Self(lines))
-    }
 
-    /// Apply function to code, then recalculate positions.
-    #[must_use]
-    pub fn map<C>(self, f: impl Fn(&str) -> C, width: impl Fn(&C) -> usize) -> Block<C, T> {
-        let lines = self.0.into_iter().map(|(line_no, line, mut labels)| {
-            labels.map_positions(|i| width(&f(&line[..i])));
-            (line_no, f(line), labels)
+        let lines = lines.into_iter().map(|(line_no, line, parts)| {
+            let len = line.len();
+            let start = parts.incoming.as_ref().map_or(0, |(code, _)| code.end);
+            let end = parts.outgoing.as_ref().map_or(len, |(code, _)| code.start);
+            let last = parts.inside.last().map_or(start, |(code, _)| code.end);
+
+            let incoming = parts.incoming.map(|(code, text)| (&line[..code.end], text));
+            let outgoing = parts.outgoing.map(|(code, sty)| (&line[code.start..], sty));
+
+            let mut pos = start;
+            let inside = parts.inside.into_iter().flat_map(|(code, label)| {
+                let unlabelled = (&line[pos..code.start], None);
+                let labelled = (&line[code.start..code.end], label);
+                pos = code.end;
+                [unlabelled, labelled]
+            });
+            let parts = Parts {
+                incoming,
+                inside: inside.chain([(&line[last..end], None)]).collect(),
+                outgoing,
+            };
+            (line_no, parts)
         });
-        Block(lines.collect())
+
+        Some(Self(lines.collect()))
     }
 }
 
@@ -273,16 +318,15 @@ pub struct Prologue(usize);
 pub struct Epilogue(usize);
 
 impl<C, T> Block<C, T> {
-    /// Apply function to code without recalculating positions.
+    /// Apply function to code.
     #[must_use]
     pub fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Block<C1, T> {
         let lines = self.0.into_iter();
-        let lines = lines.map(|(line_no, line, labels)| (line_no, f(line), labels));
-        Block(lines.collect())
+        Block(lines.map(|(no, parts)| (no, parts.map_code(&f))).collect())
     }
 
     fn some_incoming(&self) -> bool {
-        self.0.iter().any(|(.., labels)| labels.incoming.is_some())
+        self.0.iter().any(|(.., parts)| parts.incoming.is_some())
     }
 
     fn line_no_width(&self) -> usize {
@@ -324,7 +368,7 @@ impl Display for Epilogue {
     }
 }
 
-impl<C: Display, T: Display> Display for Block<C, T> {
+impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let line_no_width = self.line_no_width();
         // " ...  │"
@@ -335,181 +379,212 @@ impl<C: Display, T: Display> Display for Block<C, T> {
         let incoming_space =
             |f: &mut Formatter| write!(f, "{}", if self.some_incoming() { "  " } else { "" });
         let mut incoming_style: Option<&Style> = None;
-        for (no, line, labels) in &self.0 {
-            write!(f, "{:line_no_width$} │", no + 1)?;
+        for (line_no, parts) in &self.0 {
+            write!(f, "{:line_no_width$} │", line_no + 1)?;
             if let Some(style) = incoming_style {
-                write!(f, " {}", style(&Snake::Vertical))?;
+                write!(f, " {}", style(Snake::Vertical.to_string()))?;
             } else {
                 incoming_space(f)?;
             }
-            writeln!(f, " {line}")?;
+
+            write!(f, " ")?;
+            parts.fmt_code(incoming_style, f)?;
+            writeln!(f)?;
 
             dots(f)?;
             if let Some(style) = incoming_style {
-                write!(f, " {}", style(&Snake::Vertical))?;
+                write!(f, " {}", style(Snake::Vertical.to_string()))?;
             } else {
                 incoming_space(f)?;
             }
-            labels.fmt_arrows(incoming_style, f)?;
+            parts.fmt_arrows(incoming_style, f)?;
             writeln!(f)?;
 
-            if let Some(style) = incoming_style.take() {
+            if let Some(style) = incoming_style {
                 dots(f)?;
                 write!(f, " ")?;
-                labels.fmt_incoming(style, f)?;
+                parts.fmt_incoming(style, f)?;
                 writeln!(f)?;
             }
 
-            for i in 0..labels.inside.len() {
-                dots(f)?;
-                incoming_space(f)?;
-                write!(f, " ")?;
-                labels.fmt_inside_vert(i, f)?;
-                writeln!(f)?;
-
+            for i in 0..parts.inside.len() {
+                if parts.inside[i].1.is_none() {
+                    continue;
+                }
                 dots(f)?;
                 incoming_space(f)?;
                 write!(f, " ")?;
-                labels.fmt_inside_text(i, f)?;
+                parts.fmt_inside_vert(i, f)?;
+                writeln!(f)?;
+
+                dots(f)?;
+                incoming_space(f)?;
+                write!(f, " ")?;
+                parts.fmt_inside_text(i, f)?;
                 writeln!(f)?;
             }
 
-            if labels.outgoing.is_some() {
+            if parts.outgoing.is_some() {
                 dots(f)?;
                 write!(f, " ")?;
-                labels.fmt_outgoing(f)?;
+                parts.fmt_outgoing(f)?;
                 writeln!(f)?;
             }
-
-            if let Some((_, style)) = &labels.outgoing {
-                incoming_style = Some(style);
-            }
+            incoming_style = parts.outgoing.as_ref().map(|(_code, style)| &**style);
         }
         Ok(())
     }
 }
 
-impl<T> Labels<T> {
-    /// Position of the end of the rightmost label.
-    fn width(&self) -> usize {
-        let inside = self.inside.iter();
-        inside
-            .map(|Label { range, .. }| range.end + usize::from(range.start == range.end))
-            .chain(self.incoming.iter().map(|(end, _)| *end))
-            .chain(self.outgoing.iter().map(|(start, _)| *start + 1))
-            .max()
-            .unwrap()
-    }
+impl<C: Display, T> Parts<C, T> {
+    fn fmt_code(&self, incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
+        if let (Some((code, _text)), Some(style)) = (&self.incoming, incoming) {
+            write!(f, "{}", style(code.to_string()))?
+        }
 
-    fn map_positions(&mut self, f: impl Fn(usize) -> usize) {
-        if let Some((end, _text)) = &mut self.incoming {
-            *end = f(*end);
+        for (code, label) in &self.inside {
+            match label {
+                Some((_text, style)) => write!(f, "{}", style(code.to_string()))?,
+                None => write!(f, "{code}")?,
+            }
         }
-        if let Some((start, _style)) = &mut self.outgoing {
-            *start = f(*start);
+        if let Some((code, style)) = &self.outgoing {
+            write!(f, "{}", style(code.to_string()))?
         }
-        for Label { range, .. } in &mut self.inside {
-            *range = f(range.start)..f(range.end);
+        Ok(())
+    }
+}
+
+impl<C, T> Parts<C, T> {
+    #[must_use]
+    fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Parts<C1, T> {
+        let inside = self.inside.into_iter();
+        Parts {
+            incoming: self.incoming.map(|(code, text)| (f(code), text)),
+            inside: inside.map(|(code, label)| (f(code), label)).collect(),
+            outgoing: self.outgoing.map(|(code, style)| (f(code), style)),
         }
     }
 }
 
-impl<T: Display> Labels<T> {
+impl<C, T> Parts<CodeWidth<C>, T> {
+    /// Position of the end of the rightmost label.
+    fn width(&self) -> usize {
+        let inside = self.inside.iter().map(|(code, _)| code.width);
+        inside
+            .chain(self.incoming.iter().map(|(code, _)| code.width))
+            .chain(self.outgoing.iter().map(|(code, _)| code.width))
+            .sum()
+    }
+
+    fn width_until(&self, i: usize) -> usize {
+        let inside = self.inside[..i].iter().map(|(code, _)| code.width);
+        inside
+            .chain(self.incoming.as_ref().map(|(code, _)| code.width))
+            .sum()
+    }
+
     /// Print something like "▲ ─┬─ ... ─┬─  ▲".
     fn fmt_arrows(&self, incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
-        let mut len = 0;
-        if let Some(style) = incoming {
-            let (end, _text) = self.incoming.as_ref().unwrap();
-            write!(f, "{}{}", " ".repeat(*end), style(&Snake::ArrowUp))?;
-            len = *end;
+        if let (Some((code, _text)), Some(style)) = (&self.incoming, incoming) {
+            write!(
+                f,
+                "{}{}",
+                " ".repeat(code.width),
+                style(Snake::ArrowUp.to_string())
+            )?;
         } else {
             write!(f, " ")?;
         }
 
-        for Label { range, style, .. } in &self.inside {
-            write!(f, "{}", " ".repeat(range.start - len))?;
-            if range.start == range.end {
-                write!(f, "{}", style(&Snake::ArrowUp))?;
-                len = range.end + 1;
-            } else {
-                let half_len = (range.end - range.start) / 2;
-                write!(
-                    f,
+        for (code, label) in &self.inside {
+            if let Some((_text, style)) = label {
+                let (half, rest) = code.before_after();
+                let snake = format!(
                     "{}{}{}",
-                    style(&Snake::Horizontal(half_len)),
-                    style(&Snake::HorizontalDown),
-                    style(&Snake::Horizontal(range.end - (range.start + half_len + 1)))
-                )?;
-                len = range.end;
+                    Snake::Horizontal(half),
+                    Snake::HorizontalDown,
+                    Snake::Horizontal(rest)
+                );
+                style(snake).fmt(f)?;
+            } else {
+                write!(f, "{}", " ".repeat(code.width))?;
             }
         }
 
-        if let Some((start, style)) = &self.outgoing {
-            write!(f, "{}{}", " ".repeat(*start - len), style(&Snake::ArrowUp))?;
+        if let Some((_code, style)) = &self.outgoing {
+            write!(f, "{}", style(Snake::ArrowUp.to_string()))?;
         }
         Ok(())
     }
 
-    /// Print something like "╰─...─┴─...─ text".
-    fn fmt_incoming(&self, style: &Style, f: &mut Formatter) -> fmt::Result {
-        if let Some((end, text)) = &self.incoming {
-            write!(
-                f,
-                "{}{}{}{} {}",
-                style(&Snake::DownRight),
-                style(&Snake::Horizontal(*end)),
-                style(&Snake::HorizontalUp),
-                style(&Snake::Horizontal(self.width() + 1 - end)),
-                text
-            )?;
+    /// Print something like "╭─...─╯".
+    fn fmt_outgoing(&self, f: &mut Formatter) -> fmt::Result {
+        if let Some((_, style)) = &self.outgoing {
+            let snake = format!(
+                "{}{}{}",
+                Snake::UpRight,
+                Snake::Horizontal(self.width()),
+                Snake::RightUp
+            );
+            style(snake).fmt(f)?;
         }
         Ok(())
     }
 
     /// Print something like "... │ ...  │"
     fn fmt_inside_vert(&self, i: usize, f: &mut Formatter) -> fmt::Result {
-        let mut len = 0;
-        for Label { range, .. } in &self.inside[..i] {
-            write!(f, "{}", " ".repeat(range.end - len))?;
-            len = range.end;
+        let before = self.width_until(i);
+        write!(f, "{}", " ".repeat(before))?;
+        for (code, label) in &self.inside[i..] {
+            if let Some((_text, style)) = label {
+                let (half, rest) = code.before_after();
+                write!(
+                    f,
+                    "{}{}{}",
+                    " ".repeat(half),
+                    style(Snake::Vertical.to_string()),
+                    " ".repeat(rest)
+                )?;
+            } else {
+                write!(f, "{}", " ".repeat(code.width))?;
+            }
         }
-        for Label { range, style, .. } in &self.inside[i..] {
-            let mid = range.start + (range.end - range.start) / 2;
-            write!(f, "{}{}", " ".repeat(mid - len), style(&Snake::Vertical))?;
-            len = mid + 1;
+        if let Some((_code, style)) = &self.outgoing {
+            write!(f, "{}", style(Snake::Vertical.to_string()))?;
         }
-        if let Some((start, style)) = &self.outgoing {
-            write!(f, "{}{}", " ".repeat(*start - len), style(&Snake::Vertical))?;
+        Ok(())
+    }
+}
+
+impl<C, T: Display> Parts<CodeWidth<C>, T> {
+    /// Print something like "╰─...─┴─...─ text".
+    fn fmt_incoming(&self, style: &Style, f: &mut Formatter) -> fmt::Result {
+        if let Some((code, text)) = &self.incoming {
+            let snake = format!(
+                "{}{}{}{}",
+                Snake::DownRight,
+                Snake::Horizontal(code.width),
+                Snake::HorizontalUp,
+                Snake::Horizontal(self.width() + 1 - code.width)
+            );
+            write!(f, "{} {}", style(snake), text)?;
         }
         Ok(())
     }
 
     /// Print something like "╰─...─ text".
     fn fmt_inside_text(&self, i: usize, f: &mut Formatter) -> fmt::Result {
-        let Label { range, text, style } = &self.inside[i];
-        let mid = range.start + (range.end - range.start) / 2;
-        write!(
-            f,
-            "{}{}{} {}",
-            " ".repeat(mid),
-            style(&Snake::DownRight),
-            style(&Snake::Horizontal(self.width() - mid)),
-            text
-        )
-    }
-
-    /// Print something like "╭─...─╯".
-    fn fmt_outgoing(&self, f: &mut Formatter) -> fmt::Result {
-        if let Some((start, style)) = &self.outgoing {
-            write!(
-                f,
-                "{}{}{}",
-                style(&Snake::UpRight),
-                style(&Snake::Horizontal(*start + 1)),
-                style(&Snake::RightUp),
-            )?;
-        }
-        Ok(())
+        let before = self.width_until(i);
+        let (code, label) = &self.inside[i];
+        let (text, style) = label.as_ref().unwrap();
+        let mid = before + code.width / 2;
+        let snake = format!(
+            "{}{}",
+            Snake::DownRight,
+            Snake::Horizontal(self.width() - mid)
+        );
+        write!(f, "{}{} {}", " ".repeat(mid), style(snake), text)
     }
 }
 
