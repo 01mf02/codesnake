@@ -83,7 +83,7 @@
 //! This allows you to color the snakes of a label as follows:
 //!
 //! ~~~
-//! use codesnake::{Label, Snake};
+//! use codesnake::Label;
 //! use yansi::Paint;
 //! # let (range, text) = (8..14, "this is of type Nat");
 //! let label = Label::new(range, text).with_style(|s| s.red().to_string());
@@ -92,7 +92,7 @@
 //! For HTML, you can use something like:
 //!
 //! ~~~
-//! use codesnake::{Label, Snake};
+//! use codesnake::Label;
 //! # let (range, text) = (8..14, "this is of type Nat");
 //! let label = Label::new(range, text).with_style(|s| {
 //!     format!("<span style=\"color:red\">{s}</span>")
