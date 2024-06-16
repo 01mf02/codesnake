@@ -6,22 +6,32 @@
 //! This crate aids you in creating output like the following,
 //! both for the terminal (ANSI) as well as for the web (HTML):
 //!
+//! <!-- colors taken from https://en.wikipedia.org/wiki/Solarized -->
 //! <style>
 //! pre span.red   { color: #dc322f; }
 //! pre span.green { color: #859900; }
 //! pre span.blue  { color: #268bd2; }
+//! pre span.yellow{ color: #b58900; }
 //! </style>
-//! <pre style="background-color:#002b36; color:#93a1a1; line-height:1.0; font-size:x-large;">
-//!   ╭─<span class=red>[main.rs]</span>
+//! <pre style="background-color:#002b36; color:#93a1a1; line-height:1.0; font-size:large;">
+//!   ╭─<span class=red>[fac.lisp]</span>
 //!   │
-//! 1 │ if true { 42 } else { "42" }
-//!   ┆         <span class=green>───</span><span class=green>┬</span><span class=green>──</span>      <span class=blue>────</span><span class=blue>┬</span><span class=blue>───</span>
-//!   ┆            <span class=green>│</span>            <span class=blue>│</span>
-//!   ┆            <span class=green>╰</span><span class=green>─────────────────</span> this is of type Nat
-//!   ┆                         <span class=blue>│</span>
-//!   ┆                         <span class=blue>╰</span><span class=blue>────</span> this is of type String
+//! 1 │   (defun <span class=green>factorial</span> (n) <span class=blue>(if (zerop n) 1</span>
+//!   ┆          <span class=green>────┬────</span>     <span class=blue>▲</span>
+//!   ┆          <span class=green>    │    </span>     <span class=blue>│</span>
+//!   ┆              <span class=green>╰─────────────────────────</span> this function ...
+//!   ┆ <span class=blue>╭──────────────────────╯</span>
+//! 2 │ <span class=blue>│</span> <span class=blue>        (* n (factorial (1- n))))</span>)<span class=yellow></span>
+//!   ┆ <span class=blue>│</span>                                 <span class=blue>▲</span> <span class=yellow>┬</span>
+//!   ┆ <span class=blue>│</span>                                 <span class=blue>│</span> <span class=yellow>│</span>
+//!   ┆ <span class=blue>╰─────────────────────────────────┴───</span> ... is defined by this
+//!   ┆                                     <span class=yellow>│</span>
+//!   ┆                                     <span class=yellow>╰─</span> (and here is EOF)
 //! ──╯
 //! </pre>
+//!
+//! This example has been created with `cargo run --example example -- --html`.
+//! To see its console output, run `cargo run --example example`.
 //!
 //! # Usage
 //!
