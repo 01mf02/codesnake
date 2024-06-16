@@ -560,7 +560,7 @@ impl<C, T: Display> Parts<CodeWidth<C>, T> {
 
 /// Parts used to draw code spans and lines.
 #[derive(Copy, Clone)]
-pub enum Snake {
+enum Snake {
     /// "─"
     Horizontal,
     /// "│"
