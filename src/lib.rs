@@ -294,15 +294,16 @@ impl<'a, T> Block<&'a str, T> {
             let outgoing = parts.outgoing.map(|(code, sty)| (&line[code.start..], sty));
 
             let mut pos = start;
+            let unlabelled = |start, end| (start < end).then(|| (&line[start..end], None));
             let inside = parts.inside.into_iter().flat_map(|(code, label)| {
-                let unlabelled = (&line[pos..code.start], None);
+                let unlabelled = unlabelled(pos, code.start);
                 let labelled = (&line[code.start..code.end], label);
                 pos = code.end;
-                [unlabelled, labelled]
+                unlabelled.into_iter().chain([labelled])
             });
             let parts = Parts {
                 incoming,
-                inside: inside.chain([(&line[last..end], None)]).collect(),
+                inside: inside.chain(unlabelled(last, end)).collect(),
                 outgoing,
             };
             (line_no, parts)
