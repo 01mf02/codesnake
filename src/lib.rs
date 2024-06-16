@@ -421,12 +421,12 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 writeln!(f)?;
             }
 
+            let incoming_width = parts.incoming.as_ref().map_or(0, |(code, _)| code.width);
             let prefix = |f: &mut _| {
                 dots(f)?;
                 incoming_space(f)?;
                 write!(f, " ")?;
-                " ".repeat(parts.incoming.as_ref().map_or(0, |(code, _)| code.width))
-                    .fmt(f)?;
+                " ".repeat(incoming_width).fmt(f)?;
                 Ok(())
             };
             for i in 0..parts.inside.len() {
@@ -445,7 +445,8 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             if let Some((_, style)) = &parts.outgoing {
                 dots(f)?;
                 write!(f, " ")?;
-                style(Snake::up_line_up(parts.width())).fmt(f)?;
+                let inside_width: usize = parts.inside.iter().map(|(code, _)| code.width).sum();
+                style(Snake::up_line_up(incoming_width + inside_width + 1)).fmt(f)?;
                 writeln!(f)?;
             }
             incoming_style = parts.outgoing.as_ref().map(|(_code, style)| &**style);
