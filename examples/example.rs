@@ -31,7 +31,7 @@ fn main() {
         Label::new(21..70, "... is defined by this").with_style(color(Color::Blue)),
         Label::new(71..71, "(and here is EOF)").with_style(color(Color::Yellow)),
     ];
-    let block = Block::new(&idx, labels).unwrap().segment().map_code(|s| {
+    let block = Block::new(&idx, labels).unwrap().map_code(|s| {
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
         CodeWidth::new(s, core::cmp::max(w, 1))

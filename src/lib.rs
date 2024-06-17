@@ -230,11 +230,11 @@ impl<C: Display> Display for CodeWidth<C> {
 
 type Style = dyn Fn(String) -> String;
 
-/// Sequence of line numbers with associated line content `L`.
-pub struct Block<L>(Vec<(usize, L)>);
+/// Sequence of lines, containing code `C` and (label) text `T`.
+pub struct Block<C, T>(Vec<(usize, Parts<C, T>)>);
 
 /// Line parts, containing code `C` and (label) text `T`.
-pub struct Parts<C, T> {
+struct Parts<C, T> {
     incoming: Option<(C, T)>,
     inside: Vec<(C, Option<(T, Box<Style>)>)>,
     outgoing: Option<(C, Box<Style>)>,
@@ -250,11 +250,10 @@ impl<C, T> Default for Parts<C, T> {
     }
 }
 
-impl<'a, T> Block<(&'a str, Parts<Range<usize>, T>)> {
+impl<'a, T> Block<&'a str, T> {
     /// Create a new block.
     ///
     /// Given a sequence of labels, find all input lines that are touched by the labels.
-    /// To do something meaningful with the block, you should [`segment`][`Block::segment`] it.
     ///
     /// The label ranges `r` must fulfill the following conditions:
     ///
@@ -265,13 +264,12 @@ impl<'a, T> Block<(&'a str, Parts<Range<usize>, T>)> {
     ///   `r1.start < r2.start` and `r1.end <= r2.start`.
     ///
     /// If any of these conditions is not fulfilled, this function returns `None`.
-    #[must_use]
     pub fn new<I>(idx: &'a LineIndex, labels: I) -> Option<Self>
     where
         I: IntoIterator<Item = Label<Range<usize>, T>>,
     {
         let mut prev_range: Option<Range<_>> = None;
-        let mut block = Self(Vec::new());
+        let mut lines = Vec::new();
         for label in labels {
             if label.code.start > label.code.end {
                 return None;
@@ -285,10 +283,10 @@ impl<'a, T> Block<(&'a str, Parts<Range<usize>, T>)> {
             let end = idx.get(label.code.end)?;
             debug_assert!(start.line_no <= end.line_no);
 
-            let mut parts = match block.0.pop() {
-                Some((line_no, (_line, parts))) if line_no == start.line_no => parts,
+            let mut parts = match lines.pop() {
+                Some((line_no, _line, parts)) if line_no == start.line_no => parts,
                 Some(line) => {
-                    block.0.push(line);
+                    lines.push(line);
                     Parts::default()
                 }
                 None => Parts::default(),
@@ -297,33 +295,30 @@ impl<'a, T> Block<(&'a str, Parts<Range<usize>, T>)> {
             if start.line_no == end.line_no {
                 let label = (label.text, label.style);
                 parts.inside.push((start.bytes..end.bytes, Some(label)));
-                block.0.push((start.line_no, (start.line, parts)));
+                lines.push((start.line_no, start.line, parts));
             } else {
                 parts.outgoing = Some((start.bytes..start.line.len(), label.style));
-                block.0.push((start.line_no, (start.line, parts)));
+                lines.push((start.line_no, start.line, parts));
                 for line_no in start.line_no + 1..end.line_no {
                     let line = idx.0[line_no].1;
                     let parts = Parts {
                         inside: Vec::from([(0..line.len(), None)]),
                         ..Default::default()
                     };
-                    block.0.push((line_no, (line, parts)));
+                    lines.push((line_no, line, parts));
                 }
                 let parts = Parts {
                     incoming: Some((0..end.bytes, label.text)),
                     ..Default::default()
                 };
-                block.0.push((end.line_no, (end.line, parts)));
+                lines.push((end.line_no, end.line, parts));
             }
         }
 
-        Some(block)
-    }
-
-    /// Segment a code line into its individual parts.
-    #[must_use]
-    pub fn segment(self) -> Block<Parts<&'a str, T>> {
-        self.map(|(line, parts)| parts.segment(line))
+        let block = lines
+            .into_iter()
+            .map(|(line_no, line, parts)| (line_no, parts.segment(line)));
+        Some(Block(block.collect()))
     }
 }
 
@@ -332,22 +327,16 @@ pub struct Prologue(usize);
 /// Line that succeeds a block.
 pub struct Epilogue(usize);
 
-impl<C, T> Block<Parts<C, T>> {
+impl<C, T> Block<C, T> {
     /// Apply function to code.
     #[must_use]
-    pub fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Block<Parts<C1, T>> {
-        self.map(|parts| parts.map_code(&f))
+    pub fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Block<C1, T> {
+        let lines = self.0.into_iter();
+        Block(lines.map(|(no, parts)| (no, parts.map_code(&f))).collect())
     }
 
     fn some_incoming(&self) -> bool {
         self.0.iter().any(|(.., parts)| parts.incoming.is_some())
-    }
-}
-
-impl<L> Block<L> {
-    fn map<L1>(self, f: impl Fn(L) -> L1) -> Block<L1> {
-        let lines = self.0.into_iter();
-        Block(lines.map(|(line_no, line)| (line_no, f(line))).collect())
     }
 
     fn line_no_width(&self) -> usize {
@@ -389,7 +378,7 @@ impl Display for Epilogue {
     }
 }
 
-impl<C: Display, T: Display> Display for Block<Parts<CodeWidth<C>, T>> {
+impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let line_no_width = self.line_no_width();
         // " ...  │"
@@ -505,9 +494,6 @@ impl<T> Parts<Range<usize>, T> {
         let end = self.outgoing.as_ref().map_or(len, |(code, _)| code.start);
         let last = self.inside.last().map_or(start, |(code, _)| code.end);
 
-        let incoming = self.incoming.map(|(code, text)| (&line[..code.end], text));
-        let outgoing = self.outgoing.map(|(code, sty)| (&line[code.start..], sty));
-
         let mut pos = start;
         let unlabelled = |start, end| (start < end).then(|| (&line[start..end], None));
         let inside = self.inside.into_iter().flat_map(|(code, label)| {
@@ -517,9 +503,9 @@ impl<T> Parts<Range<usize>, T> {
             unlabelled.into_iter().chain([labelled])
         });
         Parts {
-            incoming,
+            incoming: self.incoming.map(|(code, text)| (&line[..code.end], text)),
             inside: inside.chain(unlabelled(last, end)).collect(),
-            outgoing,
+            outgoing: self.outgoing.map(|(code, sty)| (&line[code.start..], sty)),
         }
     }
 }
