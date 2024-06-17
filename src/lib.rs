@@ -217,7 +217,7 @@ impl<C> CodeWidth<C> {
     /// Width to the left and right of the center (excluding the center itself).
     fn left_right(&self) -> (usize, usize) {
         let left = self.width / 2;
-        let right = self.width.checked_sub(left + 1).unwrap_or(0);
+        let right = self.width.saturating_sub(left + 1);
         (left, right)
     }
 }
@@ -483,7 +483,7 @@ impl<C: Display, T> Parts<C, T> {
     fn fmt_code(&self, mut incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
         if let Some((code, _text)) = &self.incoming {
             let style = incoming.take().unwrap();
-            write!(f, "{}", style(code.to_string()))?
+            write!(f, "{}", style(code.to_string()))?;
         }
 
         for (code, label) in &self.inside {
@@ -494,7 +494,7 @@ impl<C: Display, T> Parts<C, T> {
             }
         }
         if let Some((code, style)) = &self.outgoing {
-            write!(f, "{}", style(code.to_string()))?
+            write!(f, "{}", style(code.to_string()))?;
         }
         Ok(())
     }
