@@ -117,6 +117,9 @@ use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 
 /// Associate byte offsets with line numbers.
+///
+/// If `idx = LineIndex::new(s)` and `idx.0[n] = (offset, line)`, then
+/// the `n`-th line of `s` starts at `offset` in `s` and equals `line`.
 pub struct LineIndex<'a>(Vec<(usize, &'a str)>);
 
 impl<'a> LineIndex<'a> {
@@ -282,11 +285,19 @@ impl<'a, T> Block<&'a str, T> {
             // this must always succeed, because if lines was empty initially,
             // then we pushed the current line to it
             let line = lines.last_mut()?;
-            if end.line_no == line.0 {
+            if end.line_no == start.line_no {
                 let label = (label.text, label.style);
                 line.2.inside.push((start.bytes..end.bytes, Some(label)));
             } else {
                 line.2.outgoing = Some((start.bytes..start.line.len(), label.style));
+                for line_no in start.line_no + 1..end.line_no {
+                    let line = idx.0[line_no].1;
+                    let parts = Parts {
+                        inside: Vec::from([(0..line.len(), None)]),
+                        ..Default::default()
+                    };
+                    lines.push((line_no, line, parts));
+                }
                 let next_parts = Parts {
                     incoming: Some((0..end.bytes, label.text)),
                     ..Default::default()
@@ -390,9 +401,9 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             |f: &mut Formatter| write!(f, "{} {}", " ".repeat(line_no_width), Snake::VerticalDots);
         let incoming_space =
             |f: &mut Formatter| write!(f, "{}", if self.some_incoming() { "  " } else { "" });
-        // the incoming style of the current line is the same as
-        // the outgoing style of the previous line
+
         let mut incoming_style: Option<&Style> = None;
+
         for (line_no, parts) in &self.0 {
             write!(f, "{:line_no_width$} │", line_no + 1)?;
             if let Some(style) = incoming_style {
@@ -416,7 +427,9 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             parts.fmt_arrows(f)?;
             writeln!(f)?;
 
-            if let (Some((code, text)), Some(style)) = (&parts.incoming, incoming_style) {
+            if let Some((code, text)) = &parts.incoming {
+                let style = incoming_style.take().unwrap();
+
                 dots(f)?;
                 write!(f, " ")?;
                 style(Snake::Vertical.to_string()).fmt(f)?;
@@ -458,23 +471,26 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 let inside_width: usize = parts.inside.iter().map(|(code, _)| code.width).sum();
                 style(Snake::up_line_up(incoming_width + inside_width + 1)).fmt(f)?;
                 writeln!(f)?;
+
+                incoming_style = Some(style);
             }
-            incoming_style = parts.outgoing.as_ref().map(|(_code, style)| &**style);
         }
         Ok(())
     }
 }
 
 impl<C: Display, T> Parts<C, T> {
-    fn fmt_code(&self, incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
-        if let (Some((code, _text)), Some(style)) = (&self.incoming, incoming) {
+    fn fmt_code(&self, mut incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
+        if let Some((code, _text)) = &self.incoming {
+            let style = incoming.take().unwrap();
             write!(f, "{}", style(code.to_string()))?
         }
 
         for (code, label) in &self.inside {
-            match label {
-                Some((_text, style)) => write!(f, "{}", style(code.to_string()))?,
-                None => write!(f, "{code}")?,
+            match (label, incoming) {
+                (Some((_text, style)), _) => write!(f, "{}", style(code.to_string()))?,
+                (None, Some(style)) => write!(f, "{}", style(code.to_string()))?,
+                (None, None) => write!(f, "{code}")?,
             }
         }
         if let Some((code, style)) = &self.outgoing {
