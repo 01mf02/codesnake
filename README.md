@@ -2,7 +2,7 @@
 
 codesnake is a Rust crate that shows code blocks and labels parts of it.
 Its name comes from the snake-like appearance of
-the lines that connect code spans with their corresponding labels.
+the lines that connect code spans with their corresponding labels. 🐍
 An example of its output:
 
 <pre style="background-color:#002b36; color:#93a1a1; line-height:1.0; font-size:x-large;">
