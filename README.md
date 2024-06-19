@@ -5,17 +5,7 @@ Its name comes from the snake-like appearance of
 the lines that connect code spans with their corresponding labels. 🐍
 An example of its output:
 
-<pre style="background-color:#002b36; color:#93a1a1; line-height:1.0; font-size:x-large;">
-  ╭─<span class=red>[main.rs]</span>
-  │
-1 │ if true { 42 } else { "42" }
-  ┆         <span class=green>───</span><span class=green>┬</span><span class=green>──</span>      <span class=blue>────</span><span class=blue>┬</span><span class=blue>───</span>
-  ┆            <span class=green>│</span>            <span class=blue>│</span>
-  ┆            <span class=green>╰</span><span class=green>─────────────────</span> this is of type Nat
-  ┆                         <span class=blue>│</span>
-  ┆                         <span class=blue>╰</span><span class=blue>────</span> this is of type String
-──╯
-</pre>
+![Example output](example.svg)
 
 ## Features
 

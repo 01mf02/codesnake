@@ -1,3 +1,6 @@
+// To generate SVG from this example:
+//
+//     cargo run --example example | ansisvg --colorscheme "Builtin Solarized Dark" --fontname "Source Code Pro" --fontsize 18 > example.svg
 use codesnake::{Block, CodeWidth, Label, LineIndex};
 use core::fmt::Display;
 use yansi::{Color, Paint};
