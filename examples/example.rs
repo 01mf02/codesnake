@@ -30,9 +30,16 @@ fn main() {
     let color = |color| move |s| style(html, &s, color);
 
     let labels = [
-        Label::new(7..16, "this function ...").with_style(color(Color::Green)),
-        Label::new(21..70, "... is defined by this").with_style(color(Color::Blue)),
-        Label::new(71..71, "(and here is EOF)").with_style(color(Color::Yellow)),
+        Label::new(1..6).with_style(color(Color::Red)),
+        Label::new(7..16)
+            .with_text("this function ...")
+            .with_style(color(Color::Green)),
+        Label::new(21..70)
+            .with_text("... is defined by this")
+            .with_style(color(Color::Blue)),
+        Label::new(71..71)
+            .with_text("(and here is EOF)")
+            .with_style(color(Color::Yellow)),
     ];
     let block = Block::new(&idx, labels).unwrap().map_code(|s| {
         let s = s.replace('\t', "    ");

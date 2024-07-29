@@ -64,7 +64,7 @@
 //! # let src = r#"if true { 42 } else { "42" }"#;
 //! # let idx = LineIndex::new(src);
 //! # let labels = [(8..14, "this is of type Nat")];
-//! let block = Block::new(&idx, labels.map(|(range, text)| Label::new(range, text))).unwrap();
+//! let block = Block::new(&idx, labels.map(|(range, text)| Label::new(range).with_text(text))).unwrap();
 //! ~~~
 //!
 //! This will fail if your labels refer to bytes outside the range of your source.
@@ -78,7 +78,7 @@
 //! # let src = r#"if true { 42 } else { "42" }"#;
 //! # let idx = LineIndex::new(src);
 //! # let labels = [(8..14, "this is of type Nat")];
-//! # let block = Block::new(&idx, labels.map(|(range, text)| Label::new(range, text))).unwrap();
+//! # let block = Block::new(&idx, labels.map(|(range, text)| Label::new(range).with_text(text))).unwrap();
 //! let block = block.map_code(|c| CodeWidth::new(c, c.len()));
 //! // yield "  ╭─[main.rs]"
 //! println!("{}{}", block.prologue(), "[main.rs]");
@@ -96,7 +96,7 @@
 //! use codesnake::Label;
 //! use yansi::Paint;
 //! # let (range, text) = (8..14, "this is of type Nat");
-//! let label = Label::new(range, text).with_style(|s| s.red().to_string());
+//! let label = Label::new(range).with_text(text).with_style(|s| s.red().to_string());
 //! ~~~
 //!
 //! For HTML, you can use something like:
@@ -104,7 +104,7 @@
 //! ~~~
 //! use codesnake::Label;
 //! # let (range, text) = (8..14, "this is of type Nat");
-//! let label = Label::new(range, text).with_style(|s| {
+//! let label = Label::new(range).with_text(text).with_style(|s| {
 //!     format!("<span style=\"color:red\">{s}</span>")
 //! });
 //! ~~~
@@ -170,7 +170,7 @@ struct IndexEntry<'a> {
 /// Code label with text and style.
 pub struct Label<C, T> {
     code: C,
-    text: T,
+    text: Option<T>,
     style: Box<Style>,
 }
 
@@ -181,16 +181,25 @@ impl<T> Label<Range<usize>, T> {
     /// an arrow is drawn at the range start.
     /// This can be useful to indicate errors that occur at the end of the input.
     #[must_use]
-    pub fn new(code: Range<usize>, text: T) -> Self {
+    pub fn new(code: Range<usize>) -> Self {
         Self {
             code,
-            text,
+            text: None,
             style: Box::new(|s| s),
         }
     }
 }
 
 impl<C, T> Label<C, T> {
+    /// Provide text for the label.
+    pub fn with_text(self, text: T) -> Self {
+        Self {
+            code: self.code,
+            text: Some(text),
+            style: self.style,
+        }
+    }
+
     /// Use a custom style for drawing the label's snake.
     #[must_use]
     pub fn with_style(self, style: impl Fn(String) -> String + 'static) -> Self {
@@ -233,10 +242,12 @@ type Style = dyn Fn(String) -> String;
 /// Sequence of lines, containing code `C` and (label) text `T`.
 pub struct Block<C, T>(Vec<(usize, Parts<C, T>)>);
 
+type TextStyle<T> = (Option<T>, Box<Style>);
+
 /// Line parts, containing code `C` and (label) text `T`.
 struct Parts<C, T> {
-    incoming: Option<(C, T)>,
-    inside: Vec<(C, Option<(T, Box<Style>)>)>,
+    incoming: Option<(C, Option<T>)>,
+    inside: Vec<(C, Option<TextStyle<T>>)>,
     outgoing: Option<(C, Box<Style>)>,
 }
 
@@ -426,12 +437,20 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
                 dots(f)?;
                 write!(f, " ")?;
-                let snake = Snake::down_line_up_line(code.width, parts.width() + 1 - code.width);
-                write!(f, "{} {}", style(snake), text)?;
+                if let Some(text) = text {
+                    let snake =
+                        Snake::down_line_up_line(code.width, parts.width() + 1 - code.width);
+                    write!(f, "{} {}", style(snake), text)?;
+                } else {
+                    let snake = Snake::down_line_up(code.width);
+                    write!(f, "{}", style(snake))?;
+                    parts.fmt_inside_vert(0, f)?;
+                }
                 writeln!(f)?;
             }
 
-            let incoming_width = parts.incoming.as_ref().map_or(0, |(code, _)| code.width);
+            let incoming_width = width(&parts.incoming);
+            let mut before = 0;
             let prefix = |f: &mut _| {
                 dots(f)?;
                 incoming_space(f)?;
@@ -439,24 +458,28 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 " ".repeat(incoming_width).fmt(f)?;
                 Ok(())
             };
-            for i in 0..parts.inside.len() {
-                if parts.inside[i].1.is_none() {
-                    continue;
-                }
-                prefix(f)?;
-                parts.fmt_inside_vert(i, f)?;
-                writeln!(f)?;
+            for (i, (code, text_style)) in parts.inside.iter().enumerate() {
+                if let Some((Some(text), style)) = text_style {
+                    prefix(f)?;
+                    parts.fmt_inside_vert(i, f)?;
+                    writeln!(f)?;
 
-                prefix(f)?;
-                parts.fmt_inside_text(i, f)?;
-                writeln!(f)?;
+                    prefix(f)?;
+
+                    // print something like "╰─...─ text"
+                    let (left, right) = code.left_right();
+                    let after = width(&parts.inside) - before - code.width + width(&parts.outgoing);
+                    let snake = Snake::down_line(right + after + 1);
+                    write!(f, "{}{} {}", " ".repeat(before + left), style(snake), text)?;
+                    writeln!(f)?;
+                }
+                before += code.width;
             }
 
             if let Some((_, style)) = &parts.outgoing {
                 dots(f)?;
                 write!(f, " ")?;
-                let inside_width: usize = parts.inside.iter().map(|(code, _)| code.width).sum();
-                style(Snake::up_line_up(incoming_width + inside_width + 1)).fmt(f)?;
+                style(Snake::up_line_up(incoming_width + width(&parts.inside) + 1)).fmt(f)?;
                 writeln!(f)?;
 
                 incoming_style = Some(style);
@@ -522,14 +545,14 @@ impl<C, T> Parts<C, T> {
     }
 }
 
+fn width<'a, C: 'a, T: 'a>(i: impl IntoIterator<Item = &'a (CodeWidth<C>, T)>) -> usize {
+    i.into_iter().map(|(code, _)| code.width).sum()
+}
+
 impl<C, T> Parts<CodeWidth<C>, T> {
     /// Position of the end of the rightmost label.
     fn width(&self) -> usize {
-        let inside = self.inside.iter().map(|(code, _)| code.width);
-        inside
-            .chain(self.incoming.iter().map(|(code, _)| code.width))
-            .chain(self.outgoing.iter().map(|(code, _)| code.width))
-            .sum()
+        width(&self.inside) + width(&self.incoming) + width(&self.outgoing)
     }
 
     fn fmt_incoming(&self, style: &Style, snake: Snake, f: &mut Formatter) -> fmt::Result {
@@ -539,19 +562,22 @@ impl<C, T> Parts<CodeWidth<C>, T> {
         Ok(())
     }
 
-    fn fmt_inside<F>(&self, from: usize, snake: F, f: &mut Formatter) -> fmt::Result
+    fn fmt_inside<S1, S2>(&self, from: usize, s1: S1, s2: S2, f: &mut Formatter) -> fmt::Result
     where
-        F: Fn(usize, usize) -> String,
+        S1: Fn(usize) -> String,
+        S2: Fn(usize, usize) -> String,
     {
-        let before = self.inside[..from].iter().map(|(code, _)| code.width).sum();
+        let before = width(&self.inside[..from]);
         write!(f, "{}", " ".repeat(before))?;
 
         for (code, label) in &self.inside[from..] {
-            if let Some((_text, style)) = label {
-                let (left, right) = code.left_right();
-                style(snake(left, right)).fmt(f)?;
-            } else {
-                " ".repeat(code.width).fmt(f)?;
+            match label {
+                Some((Some(_text), style)) => {
+                    let (left, right) = code.left_right();
+                    style(s2(left, right)).fmt(f)?
+                }
+                Some((None, style)) => style(s1(code.width)).fmt(f)?,
+                None => " ".repeat(code.width).fmt(f)?,
             }
         }
         Ok(())
@@ -559,7 +585,7 @@ impl<C, T> Parts<CodeWidth<C>, T> {
 
     /// Print something like "... ─┬─ ... ─┬─ ... ▲".
     fn fmt_arrows(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt_inside(0, Snake::line_down_line, f)?;
+        self.fmt_inside(0, Snake::line, Snake::line_down_line, f)?;
 
         if let Some((_code, style)) = &self.outgoing {
             style(Snake::ArrowUp.to_string()).fmt(f)?;
@@ -569,28 +595,14 @@ impl<C, T> Parts<CodeWidth<C>, T> {
 
     /// Print something like "... │ ...  │"
     fn fmt_inside_vert(&self, from: usize, f: &mut Formatter) -> fmt::Result {
-        let snake = |l, r| format!("{}{}{}", " ".repeat(l), Snake::Vertical, " ".repeat(r));
-        self.fmt_inside(from, snake, f)?;
+        let s1 = |w| " ".repeat(w).to_string();
+        let s2 = |l, r| format!("{}{}{}", " ".repeat(l), Snake::Vertical, " ".repeat(r));
+        self.fmt_inside(from, s1, s2, f)?;
 
         if let Some((_code, style)) = &self.outgoing {
             write!(f, "{}", style(Snake::Vertical.to_string()))?;
         }
         Ok(())
-    }
-}
-
-impl<C, T: Display> Parts<CodeWidth<C>, T> {
-    /// Print something like "╰─...─ text".
-    fn fmt_inside_text(&self, i: usize, f: &mut Formatter) -> fmt::Result {
-        let (before, then) = self.inside.split_at(i);
-        let before: usize = before.iter().map(|(code, _)| code.width).sum();
-        let after: usize = then[1..].iter().map(|(code, _)| code.width).sum();
-        let outgoing = self.outgoing.as_ref().map_or(0, |(code, _)| code.width);
-        let (code, label) = &self.inside[i];
-        let (text, style) = label.as_ref().unwrap();
-        let (left, right) = code.left_right();
-        let snake = Snake::down_line(right + after + outgoing + 1);
-        write!(f, "{}{} {}", " ".repeat(before + left), style(snake), text)
     }
 }
 
@@ -637,6 +649,11 @@ impl Snake {
             Self::HorizontalUp,
             Self::line(r)
         )
+    }
+
+    /// "╰─...─╯"
+    fn down_line_up(len: usize) -> String {
+        format!("{}{}{}", Self::DownRight, Self::line(len), Self::RightUp)
     }
 
     /// "╭─...─╯"
