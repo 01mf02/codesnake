@@ -194,6 +194,21 @@ fn empty() {
 }
 
 #[test]
+fn adjacent() {
+    assert_eq!(
+        format(SRC, [Label::new(0..3), Label::new(3..7)]),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆ ───────
+──╯
+"
+    );
+}
+
+
+#[test]
 fn the_end() {
     assert_eq!(
         format(SRC, [Label::new(72..72).with_text("the end")]),
