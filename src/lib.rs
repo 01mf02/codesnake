@@ -564,7 +564,9 @@ impl<C, T> Parts<CodeWidth<C>, T> {
 
     fn fmt_inside<S1, S2>(&self, from: usize, s1: S1, s2: S2, f: &mut Formatter) -> fmt::Result
     where
+        // display line for label without text
         S1: Fn(usize) -> String,
+        // display line for label with text
         S2: Fn(usize, usize) -> String,
     {
         let before = width(&self.inside[..from]);
