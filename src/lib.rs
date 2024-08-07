@@ -341,9 +341,10 @@ pub struct Epilogue(usize);
 impl<C, T> Block<C, T> {
     /// Apply function to code.
     #[must_use]
-    pub fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Block<C1, T> {
+    pub fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> Block<C1, T> {
         let lines = self.0.into_iter();
-        Block(lines.map(|(no, parts)| (no, parts.map_code(&f))).collect())
+        let lines = lines.map(|(no, parts)| (no, parts.map_code(&mut f)));
+        Block(lines.collect())
     }
 
     fn some_incoming(&self) -> bool {
@@ -535,7 +536,7 @@ impl<T> Parts<Range<usize>, T> {
 
 impl<C, T> Parts<C, T> {
     #[must_use]
-    fn map_code<C1>(self, f: impl Fn(C) -> C1) -> Parts<C1, T> {
+    fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> Parts<C1, T> {
         let inside = self.inside.into_iter();
         Parts {
             incoming: self.incoming.map(|(code, text)| (f(code), text)),
