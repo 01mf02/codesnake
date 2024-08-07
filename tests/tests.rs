@@ -4,10 +4,12 @@ use core::ops::Range;
 fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str>; N]) -> String {
     let idx = LineIndex::new(code);
 
+    let mut prev_empty = false;
     let block = Block::new(&idx, labels).unwrap().map_code(|s| {
+        let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
-        CodeWidth::new(s, core::cmp::max(w, 1))
+        CodeWidth::new(s, core::cmp::max(w, 1) - sub)
     });
     format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
 }
@@ -172,6 +174,20 @@ fn mtmt() {
   ┆ │    ▲                         
   ┆ │    │                         
   ┆ ╰────┴────────────────────────── four-letter words
+──╯
+"
+    );
+}
+
+#[test]
+fn empty() {
+    assert_eq!(
+        format(SRC, [Label::new(2..2), Label::new(4..7)]),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆   ─ ───
 ──╯
 "
     );
