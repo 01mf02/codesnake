@@ -1,16 +1,19 @@
 use codesnake::{Block, CodeWidth, Label, LineIndex};
 use core::ops::Range;
+use pretty_assertions::assert_eq;
 
 fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str>; N]) -> String {
     let idx = LineIndex::new(code);
 
     let mut prev_empty = false;
-    let block = Block::new(&idx, labels).unwrap().map_code(|s| {
-        let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
-        let s = s.replace('\t', "    ");
-        let w = unicode_width::UnicodeWidthStr::width(&*s);
-        CodeWidth::new(s, core::cmp::max(w, 1) - sub)
-    });
+    let block = Block::new(&idx, labels)
+        .expect("failed to construct block")
+        .map_code(|s| {
+            let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
+            let s = s.replace('\t', "    ");
+            let w = unicode_width::UnicodeWidthStr::width(&*s);
+            CodeWidth::new(s, core::cmp::max(w, 1) - sub)
+        });
     format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
 }
 
@@ -207,7 +210,6 @@ fn adjacent() {
     );
 }
 
-
 #[test]
 fn the_end() {
     assert_eq!(
@@ -219,6 +221,125 @@ fn the_end() {
   ┆                      ┬
   ┆                      │
   ┆                      ╰─ the end
+──╯
+"
+    );
+}
+
+#[test]
+fn the_end_plus_unmarked() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(25..34).unmarked(),
+                Label::new(72..72).with_text("the end"),
+            ]
+        ),
+        "
+  ╭─
+  │
+3 │ look, a fish 🐟 and a hook 🪝
+4 │ this is getting silly
+  ┆                      ┬
+  ┆                      │
+  ┆                      ╰─ the end
+──╯
+"
+    );
+}
+
+#[test]
+fn the_end_plus_unmarked_with_snake() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(24..24).unmarked(),
+                Label::new(25..25).with_text("hello"),
+                Label::new(72..72).with_text("the end"),
+            ]
+        ),
+        "
+  ╭─
+  │
+3 │ look, a fish 🐟 and a hook 🪝
+  ┆         ┬                    
+  ┆         │                    
+  ┆         ╰───────────────────── hello
+4 │ this is getting silly
+  ┆                      ┬
+  ┆                      │
+  ┆                      ╰─ the end
+──╯
+"
+    );
+}
+
+#[test]
+fn mtmt_unmarked() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..11).with_text("ba?"),
+                Label::new(12..21).with_text("four-letter words"),
+                Label::new(72..72).unmarked(),
+            ]
+        ),
+        "
+  ╭─
+  │
+1 │   foo bar
+  ┆       ▲
+  ┆ ╭─────╯
+2 │ │ baz toto
+  ┆ │   ▲ ▲
+  ┆ │   │ │
+  ┆ ╰───┴────── ba?
+  ┆ ╭─────╯
+3 │ │ look, a fish 🐟 and a hook 🪝
+  ┆ │    ▲                         
+  ┆ │    │                         
+  ┆ ╰────┴────────────────────────── four-letter words
+4 │   this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn utmtu() {
+    println!("{}", format(
+            SRC,
+            [
+                Label::new(4..11).unmarked(), //TODO
+                Label::new(12..21).with_text("four-letter words"),
+                Label::new(72..72).unmarked(),
+            ]
+        ));
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..11),
+                Label::new(12..21).with_text("four-letter words"),
+                Label::new(72..72).unmarked(),
+            ]
+        ),
+        "
+  ╭─
+  │
+1 │   foo bar
+2 │   baz toto
+  ┆       ▲
+  ┆       │
+  ┆ ╭─────╯
+3 │ │ look, a fish 🐟 and a hook 🪝
+  ┆ │    ▲                         
+  ┆ │    │                         
+  ┆ ╰────┴────────────────────────── four-letter words
+4 │   this is getting silly
 ──╯
 "
     );

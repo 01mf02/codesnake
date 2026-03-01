@@ -160,17 +160,22 @@ impl<'a> LineIndex<'a> {
     }
 }
 
-#[derive(Debug)]
 struct IndexEntry<'a> {
     line: &'a str,
     line_no: usize,
     bytes: usize,
 }
 
+enum LabelKind<T> {
+    Marked,
+    WithText(T),
+    Unmarked,
+}
+
 /// Code label with text and style.
 pub struct Label<C, T> {
     code: C,
-    text: Option<T>,
+    kind: LabelKind<T>,
     style: Box<Style>,
 }
 
@@ -184,7 +189,7 @@ impl<T> Label<Range<usize>, T> {
     pub fn new(code: Range<usize>) -> Self {
         Self {
             code,
-            text: None,
+            kind: LabelKind::Marked,
             style: Box::new(|s| s),
         }
     }
@@ -195,7 +200,16 @@ impl<C, T> Label<C, T> {
     pub fn with_text(self, text: T) -> Self {
         Self {
             code: self.code,
-            text: Some(text),
+            kind: LabelKind::WithText(text),
+            style: self.style,
+        }
+    }
+
+    /// Provide text for an unmarked label (just the source line, no annotation)
+    pub fn unmarked(self) -> Self {
+        Self {
+            code: self.code,
+            kind: LabelKind::Unmarked,
             style: self.style,
         }
     }
@@ -205,7 +219,7 @@ impl<C, T> Label<C, T> {
     pub fn with_style(self, style: impl Fn(String) -> String + 'static) -> Self {
         Self {
             code: self.code,
-            text: self.text,
+            kind: self.kind,
             style: Box::new(style),
         }
     }
@@ -242,13 +256,27 @@ type Style = dyn Fn(String) -> String;
 /// Sequence of lines, containing code `C` and (label) text `T`.
 pub struct Block<C, T>(Vec<(usize, Parts<C, T>)>);
 
-type TextStyle<T> = (Option<T>, Box<Style>);
+type TextStyle<T> = (LabelKind<T>, Box<Style>);
 
 /// Line parts, containing code `C` and (label) text `T`.
 struct Parts<C, T> {
-    incoming: Option<(C, Option<T>)>,
+    incoming: Option<(C, LabelKind<T>)>,
     inside: Vec<(C, Option<TextStyle<T>>)>,
     outgoing: Option<(C, Box<Style>)>,
+}
+
+impl<C, T> Parts<C, T> {
+    //// Skip lines that are purely Label::Unmarked derivates
+    /// ie. those that after segmentation have only LabelKind::Unmarked or None, but at least one Unmarked
+    fn skip_annotation_line(&self) -> bool {
+        self.inside
+            .iter()
+            .all(|(_c, label)| matches!(label, None | Some((LabelKind::Unmarked, _))))
+            && self
+                .inside
+                .iter()
+                .any(|(_c, label)| matches!(label, Some((LabelKind::Unmarked, _))))
+    }
 }
 
 impl<C, T> Default for Parts<C, T> {
@@ -304,7 +332,7 @@ impl<'a, T> Block<&'a str, T> {
             };
 
             if start.line_no == end.line_no {
-                let label = (label.text, label.style);
+                let label = (label.kind, label.style);
                 parts.inside.push((start.bytes..end.bytes, Some(label)));
                 lines.push((start.line_no, start.line, parts));
             } else {
@@ -319,7 +347,7 @@ impl<'a, T> Block<&'a str, T> {
                     lines.push((line_no, line, parts));
                 }
                 let parts = Parts {
-                    incoming: Some((0..end.bytes, label.text)),
+                    incoming: Some((0..end.bytes, label.kind)),
                     ..Default::default()
                 };
                 lines.push((end.line_no, end.line, parts));
@@ -415,16 +443,18 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             parts.fmt_code(incoming_style, f)?;
             writeln!(f)?;
 
-            dots(f)?;
-            write!(f, " ")?;
-            if let Some(style) = incoming_style {
-                style(Snake::Vertical.to_string()).fmt(f)?;
-                parts.fmt_incoming(style, Snake::ArrowUp, f)?;
-            } else {
-                incoming_space(f)?;
+            if !parts.skip_annotation_line() {
+                dots(f)?;
+                write!(f, " ")?;
+                if let Some(style) = incoming_style {
+                    style(Snake::Vertical.to_string()).fmt(f)?;
+                    parts.fmt_incoming(style, Snake::ArrowUp, f)?;
+                } else {
+                    incoming_space(f)?;
+                }
+                parts.fmt_arrows(f)?;
+                writeln!(f)?;
             }
-            parts.fmt_arrows(f)?;
-            writeln!(f)?;
 
             if let Some((code, text)) = &parts.incoming {
                 let style = incoming_style.take().unwrap();
@@ -438,7 +468,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
                 dots(f)?;
                 write!(f, " ")?;
-                if let Some(text) = text {
+                if let LabelKind::WithText(text) = text {
                     let snake =
                         Snake::down_line_up_line(code.width, parts.width() + 1 - code.width);
                     write!(f, "{} {}", style(snake), text)?;
@@ -460,7 +490,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 Ok(())
             };
             for (i, (code, text_style)) in parts.inside.iter().enumerate() {
-                if let Some((Some(text), style)) = text_style {
+                if let Some((LabelKind::WithText(text), style)) = text_style {
                     prefix(f)?;
                     parts.fmt_inside_vert(i, f)?;
                     writeln!(f)?;
@@ -575,11 +605,12 @@ impl<C, T> Parts<CodeWidth<C>, T> {
 
         for (code, label) in &self.inside[from..] {
             match label {
-                Some((Some(_text), style)) => {
+                Some((LabelKind::WithText(_text), style)) => {
                     let (left, right) = code.left_right();
                     style(s2(left, right)).fmt(f)?
                 }
-                Some((None, style)) => style(s1(code.width)).fmt(f)?,
+                Some((LabelKind::Marked, style)) => style(s1(code.width)).fmt(f)?,
+                Some((LabelKind::Unmarked, _style)) => " ".fmt(f)?,
                 None => " ".repeat(code.width).fmt(f)?,
             }
         }
