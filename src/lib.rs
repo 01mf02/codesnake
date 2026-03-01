@@ -256,7 +256,7 @@ type Style = dyn Fn(String) -> String;
 /// Sequence of lines, containing code `C` and (label) text `T`.
 pub struct Block<C, T>(Vec<(usize, Parts<C, T>)>);
 
-type TextStyle<T> = (LabelKind<T>, Box<Style>);
+type TextStyle<T> = (LabelKind<T>, Option<Box<Style>>);
 
 /// Line parts, containing code `C` and (label) text `T`.
 struct Parts<C, T> {
@@ -332,9 +332,25 @@ impl<'a, T> Block<&'a str, T> {
             };
 
             if start.line_no == end.line_no {
-                let label = (label.kind, label.style);
+                let label = (label.kind, Some(label.style));
                 parts.inside.push((start.bytes..end.bytes, Some(label)));
                 lines.push((start.line_no, start.line, parts));
+            } else if matches!(label.kind, LabelKind::Unmarked) {
+                // parts.outgoing = Some((start.bytes..start.line.len(), label.style));
+                // lines.push((start.line_no, start.line, parts));
+                for line_no in start.line_no..end.line_no {
+                    let line = idx.0[line_no].1;
+                    let parts = Parts {
+                        inside: Vec::from([(0..0, Some((LabelKind::Unmarked, None)))]),
+                        ..Default::default()
+                    };
+                    lines.push((line_no, line, parts));
+                }
+                // let parts = Parts {
+                //     incoming: Some((0..end.bytes, label.kind)),
+                //     ..Default::default()
+                // };
+                // lines.push((end.line_no, end.line, parts));
             } else {
                 parts.outgoing = Some((start.bytes..start.line.len(), label.style));
                 lines.push((start.line_no, start.line, parts));
@@ -490,7 +506,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 Ok(())
             };
             for (i, (code, text_style)) in parts.inside.iter().enumerate() {
-                if let Some((LabelKind::WithText(text), style)) = text_style {
+                if let Some((LabelKind::WithText(text), Some(style))) = text_style {
                     prefix(f)?;
                     parts.fmt_inside_vert(i, f)?;
                     writeln!(f)?;
@@ -529,9 +545,10 @@ impl<C: Display, T> Parts<C, T> {
 
         for (code, label) in &self.inside {
             match (label, incoming) {
-                (Some((_text, style)), _) => write!(f, "{}", style(code.to_string()))?,
+                (Some((_text, Some(style))), _) => write!(f, "{}", style(code.to_string()))?,
                 (None, Some(style)) => write!(f, "{}", style(code.to_string()))?,
                 (None, None) => write!(f, "{code}")?,
+                (Some((_, None)), _) => {},
             }
         }
         if let Some((code, style)) = &self.outgoing {
@@ -605,12 +622,13 @@ impl<C, T> Parts<CodeWidth<C>, T> {
 
         for (code, label) in &self.inside[from..] {
             match label {
-                Some((LabelKind::WithText(_text), style)) => {
+                Some((LabelKind::WithText(_text), Some(style))) => {
                     let (left, right) = code.left_right();
                     style(s2(left, right)).fmt(f)?
                 }
-                Some((LabelKind::Marked, style)) => style(s1(code.width)).fmt(f)?,
-                Some((LabelKind::Unmarked, _style)) => " ".fmt(f)?,
+                Some((LabelKind::Marked, Some(style))) => style(s1(code.width)).fmt(f)?,
+                Some((LabelKind::Unmarked, _)) => " ".fmt(f)?,
+                Some((_, None)) => unreachable!(),
                 None => " ".repeat(code.width).fmt(f)?,
             }
         }

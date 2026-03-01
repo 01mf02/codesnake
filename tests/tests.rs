@@ -17,6 +17,21 @@ fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str>; N]) ->
     format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
 }
 
+fn format_vec(code: &str, labels: Vec<Label<Range<usize>, &str>>) -> String {
+    let idx = LineIndex::new(code);
+
+    let mut prev_empty = false;
+    let block = Block::new(&idx, labels)
+        .expect("failed to construct block")
+        .map_code(|s| {
+            let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
+            let s = s.replace('\t', "    ");
+            let w = unicode_width::UnicodeWidthStr::width(&*s);
+            CodeWidth::new(s, core::cmp::max(w, 1) - sub)
+        });
+    format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
+}
+
 fn main() {
     // to find the byte positions in this example
     for ci in SRC.char_indices() {
@@ -310,19 +325,11 @@ fn mtmt_unmarked() {
 
 #[test]
 fn utmtu() {
-    println!("{}", format(
-            SRC,
-            [
-                Label::new(4..11).unmarked(), //TODO
-                Label::new(12..21).with_text("four-letter words"),
-                Label::new(72..72).unmarked(),
-            ]
-        ));
     assert_eq!(
         format(
             SRC,
             [
-                Label::new(4..11),
+                Label::new(4..11).unmarked(),
                 Label::new(12..21).with_text("four-letter words"),
                 Label::new(72..72).unmarked(),
             ]
@@ -333,13 +340,39 @@ fn utmtu() {
 1 │   foo bar
 2 │   baz toto
   ┆       ▲
-  ┆       │
   ┆ ╭─────╯
 3 │ │ look, a fish 🐟 and a hook 🪝
   ┆ │    ▲                         
   ┆ │    │                         
   ┆ ╰────┴────────────────────────── four-letter words
 4 │   this is getting silly
+──╯
+"
+    );
+}
+#[test]
+fn u() {
+    let mut line_starts: Vec<_> = SRC
+        .char_indices()
+        .filter_map(|(i, c)| if c == '\n' { Some(i) } else { None })
+        .collect();
+    line_starts.push(SRC.len()-1);
+    let labels: Vec<_>= 
+        line_starts.into_iter().map(|start| Label::new(start..start).unmarked()).collect();
+    let actual = format_vec(
+        SRC,
+        labels
+    );
+    println!("{actual}");
+    assert_eq!(
+        actual,
+        "
+  ╭─
+  │
+1 │ foo bar
+2 │ baz toto
+3 │ look, a fish 🐟 and a hook 🪝
+4 │ this is getting silly
 ──╯
 "
     );
