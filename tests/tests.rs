@@ -348,6 +348,7 @@ fn utmtu() {
 "
     );
 }
+
 #[test]
 fn u() {
     let mut line_starts: Vec<_> = SRC
@@ -370,6 +371,34 @@ fn u() {
 2 │ baz toto
 3 │ look, a fish 🐟 and a hook 🪝
 4 │ this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn u_color() {
+    let mut line_ranges = Vec::new();
+    let mut offset = 0;
+    for line in SRC.lines() {
+        line_ranges.push((offset, offset + line.len()));
+        offset += line.len() + 1; // +1 for the newline character
+    }
+    let labels: Vec<_> = line_ranges
+        .into_iter()
+        .map(|(start, end)| Label::new(start..end).unmarked().with_style(|s| format!("<start>{s}</stop>")))
+        .collect();
+    let actual = format_vec(SRC, labels);
+    println!("{actual}");
+    assert_eq!(
+        actual,
+        "
+  ╭─
+  │
+1 │ <start>foo bar</stop>
+2 │ <start>baz toto</stop>
+3 │ <start>look, a fish 🐟 and a hook 🪝</stop>
+4 │ <start>this is getting silly</stop>
 ──╯
 "
     );
@@ -425,7 +454,7 @@ fn u__m() {
     );
 }
 #[test]
-fn u__t() {
+fn u_t() {
     let should = format(
         SRC,
         [
@@ -450,7 +479,31 @@ fn u__t() {
     );
 }
 
-
+#[test]
+fn u_t_color() {
+    let should = format(
+        SRC,
+        [
+            Label::new(0..3).unmarked().with_style(|s| format!("<span>{s}</span>")),
+            Label::new(70..70).with_text("!"),
+        ],
+    );
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ <span>foo</span> bar
+  ┆
+4 │ this is getting silly
+  ┆                    ┬ 
+  ┆                    │ 
+  ┆                    ╰── !
+──╯
+"
+    );
+}
 #[test]
 fn m_u() {
     let should = format(
