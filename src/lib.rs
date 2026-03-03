@@ -199,18 +199,16 @@ impl<C, T> Label<C, T> {
     /// Provide text for the label.
     pub fn with_text(self, text: T) -> Self {
         Self {
-            code: self.code,
             kind: LabelKind::WithText(text),
-            style: self.style,
+            ..self
         }
     }
 
     /// Provide text for an unmarked label (just the source line, no annotation)
     pub fn unmarked(self) -> Self {
         Self {
-            code: self.code,
             kind: LabelKind::Unmarked,
-            style: self.style,
+            ..self
         }
     }
 
@@ -218,9 +216,8 @@ impl<C, T> Label<C, T> {
     #[must_use]
     pub fn with_style(self, style: impl Fn(String) -> String + 'static) -> Self {
         Self {
-            code: self.code,
-            kind: self.kind,
             style: Box::new(style),
+            ..self
         }
     }
 }
