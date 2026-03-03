@@ -257,7 +257,7 @@ type TextStyle<T> = (LabelKind<T>, Option<Box<Style>>);
 
 /// Line parts, containing code `C` and (label) text `T`.
 struct Parts<C, T> {
-    incoming: Option<(C, LabelKind<T>)>,
+    incoming: Option<(C, Option<T>)>,
     inside: Vec<(C, Option<TextStyle<T>>)>,
     outgoing: Option<(C, Box<Style>)>,
 }
@@ -353,7 +353,12 @@ impl<'a, T> Block<&'a str, T> {
                     lines.push((line_no, line, parts));
                 }
                 let parts = Parts {
-                    incoming: Some((0..end.bytes, label.kind)),
+                    incoming: Some((0..end.bytes, 
+                        match label.kind {
+                            LabelKind::WithText(t) => Some(t),
+                            _ => None
+                        }
+                        )),
                     ..Default::default()
                 };
                 lines.push((end.line_no, end.line, parts));
@@ -479,7 +484,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
                 dots(f)?;
                 write!(f, " ")?;
-                if let LabelKind::WithText(text) = text {
+                if let Some(text) = text {
                     let snake =
                         Snake::down_line_up_line(code.width, parts.width() + 1 - code.width);
                     write!(f, "{} {}", style(snake), text)?;

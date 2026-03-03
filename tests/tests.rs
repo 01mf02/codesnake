@@ -405,7 +405,7 @@ fn u_color() {
 }
 
 #[test]
-fn u_m() {
+fn utu() {
     let should = format(
         SRC,
         [
@@ -432,7 +432,7 @@ fn u_m() {
     );
 }
 #[test]
-fn u__m() {
+fn u_u() {
     let should = format(
         SRC,
         [
