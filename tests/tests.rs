@@ -15,7 +15,6 @@ fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str>; N]) ->
     format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
 }
 
-
 fn format_vec(code: &str, labels: Vec<Label<Range<usize>, &str>>) -> String {
     let idx = LineIndex::new(code);
 
@@ -355,13 +354,12 @@ fn u() {
         .char_indices()
         .filter_map(|(i, c)| if c == '\n' { Some(i) } else { None })
         .collect();
-    line_starts.push(SRC.len()-1);
-    let labels: Vec<_>= 
-        line_starts.into_iter().map(|start| Label::new(start..start).unmarked()).collect();
-    let actual = format_vec(
-        SRC,
-        labels
-    );
+    line_starts.push(SRC.len() - 1);
+    let labels: Vec<_> = line_starts
+        .into_iter()
+        .map(|start| Label::new(start..start).unmarked())
+        .collect();
+    let actual = format_vec(SRC, labels);
     println!("{actual}");
     assert_eq!(
         actual,
@@ -371,6 +369,59 @@ fn u() {
 1 │ foo bar
 2 │ baz toto
 3 │ look, a fish 🐟 and a hook 🪝
+4 │ this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn u_m() {
+    let should = format(
+        SRC,
+        [
+            Label::new(4..4).unmarked(),
+            Label::new(25..25).with_text("hello"),
+            Label::new(70..70).unmarked(),
+        ],
+    );
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆
+3 │ look, a fish 🐟 and a hook 🪝
+  ┆         ┬                    
+  ┆         │                    
+  ┆         ╰───────────────────── hello
+4 │ this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn m_u() {
+    let should = format(
+        SRC,
+        [
+            Label::new(4..4).with_text("hello"),
+            Label::new(70..70).unmarked(),
+        ],
+    );
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆    ┬                    
+  ┆    │                    
+  ┆    ╰───────────────────── hello
 4 │ this is getting silly
 ──╯
 "

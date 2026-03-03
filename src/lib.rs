@@ -333,8 +333,6 @@ impl<'a, T> Block<&'a str, T> {
                 parts.inside.push((start.bytes..end.bytes, Some(label)));
                 lines.push((start.line_no, start.line, parts));
             } else if matches!(label.kind, LabelKind::Unmarked) {
-                // parts.outgoing = Some((start.bytes..start.line.len(), label.style));
-                // lines.push((start.line_no, start.line, parts));
                 for line_no in start.line_no..end.line_no {
                     let line = idx.0[line_no].1;
                     let parts = Parts {
@@ -343,11 +341,6 @@ impl<'a, T> Block<&'a str, T> {
                     };
                     lines.push((line_no, line, parts));
                 }
-                // let parts = Parts {
-                //     incoming: Some((0..end.bytes, label.kind)),
-                //     ..Default::default()
-                // };
-                // lines.push((end.line_no, end.line, parts));
             } else {
                 parts.outgoing = Some((start.bytes..start.line.len(), label.style));
                 lines.push((start.line_no, start.line, parts));
@@ -545,7 +538,7 @@ impl<C: Display, T> Parts<C, T> {
                 (Some((_text, Some(style))), _) => write!(f, "{}", style(code.to_string()))?,
                 (None, Some(style)) => write!(f, "{}", style(code.to_string()))?,
                 (None, None) => write!(f, "{code}")?,
-                (Some((_, None)), _) => {},
+                (Some((_, None)), _) => {}
             }
         }
         if let Some((code, style)) = &self.outgoing {
