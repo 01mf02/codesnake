@@ -437,7 +437,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
         let mut incoming_style: Option<&Style> = None;
 
-        for (line_no, parts) in &self.0 {
+        for (this_part_index, (line_no, parts)) in self.0.iter().enumerate() {
             write!(f, "{:line_no_width$} │", line_no + 1)?;
             if let Some(style) = incoming_style {
                 write!(f, " {}", style(Snake::Vertical.to_string()))?;
@@ -459,6 +459,11 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                     incoming_space(f)?;
                 }
                 parts.fmt_arrows(f)?;
+                writeln!(f)?;
+            } else if this_part_index + 1 < self.0.len()
+                && self.0[this_part_index + 1].0 > *line_no + 1
+            {
+                dots(f)?;
                 writeln!(f)?;
             }
 

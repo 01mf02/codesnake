@@ -402,6 +402,54 @@ fn u_m() {
 "
     );
 }
+#[test]
+fn u__m() {
+    let should = format(
+        SRC,
+        [
+            Label::new(4..4).unmarked(),
+            Label::new(70..70).unmarked(),
+        ],
+    );
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆
+4 │ this is getting silly
+──╯
+"
+    );
+}
+#[test]
+fn u__t() {
+    let should = format(
+        SRC,
+        [
+            Label::new(4..4).unmarked(),
+            Label::new(70..70).with_text("!"),
+        ],
+    );
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆
+4 │ this is getting silly
+  ┆                    ┬ 
+  ┆                    │ 
+  ┆                    ╰── !
+──╯
+"
+    );
+}
+
 
 #[test]
 fn m_u() {
@@ -419,9 +467,9 @@ fn m_u() {
   ╭─
   │
 1 │ foo bar
-  ┆    ┬                    
-  ┆    │                    
-  ┆    ╰───────────────────── hello
+  ┆     ┬  
+  ┆     │  
+  ┆     ╰─── hello
 4 │ this is getting silly
 ──╯
 "
