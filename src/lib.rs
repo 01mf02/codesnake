@@ -280,8 +280,9 @@ impl<C, T> Parts<C, T> {
     //// Skip lines that are purely Label::Unmarked derivates
     /// ie. those that after segmentation have only LabelKind::Unmarked or None, but at least one Unmarked
     fn skip_annotation_line(&self) -> bool {
-        let unmarked = |(_c, label): &_| matches!(label, None | Some((LabelKind::Unmarked, _)));
-        self.inside.iter().all(unmarked) && self.inside.iter().any(unmarked)
+        let unmarked0 = |(_c, label): &_| matches!(label, Some((LabelKind::Unmarked, _)) | None);
+        let unmarked1 = |(_c, label): &_| matches!(label, Some((LabelKind::Unmarked, _)));
+        self.inside.iter().all(unmarked0) && self.inside.iter().any(unmarked1)
     }
 }
 
