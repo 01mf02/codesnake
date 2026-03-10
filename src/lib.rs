@@ -267,12 +267,12 @@ impl<C, T> Line<C, T> {
     }
 }
 
-type TextStyle<T> = (LabelKind<T>, Option<Box<Style>>);
+type LabelStyle<T> = (LabelKind<T>, Option<Box<Style>>);
 
 /// Line parts, containing code `C` and (label) text `T`.
 struct Parts<C, T> {
     incoming: Option<(C, Option<T>)>,
-    inside: Vec<(C, Option<TextStyle<T>>)>,
+    inside: Vec<(C, Option<LabelStyle<T>>)>,
     outgoing: Option<(C, Box<Style>)>,
 }
 
@@ -440,27 +440,42 @@ impl Display for Epilogue {
     }
 }
 
+impl<C, T> Block<C, T> {
+    /// " ...  ┆"
+    fn dots(&self, f: &mut Formatter) -> fmt::Result {
+        self.line_no_space_then(Snake::VerticalDots, f)
+    }
+
+    /// " ...  ?"
+    fn line_no_space_then(&self, snake: Snake, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} {}", " ".repeat(self.line_no_width()), snake)
+    }
+
+    fn incoming_space(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", if self.some_incoming() { "  " } else { "" })
+    }
+
+    /// Write line number right-aligned.
+    fn line_no(&self, no: usize, f: &mut Formatter) -> fmt::Result {
+        let width = self.line_no_width();
+        write!(f, "{:width$} │", no + 1)
+    }
+}
+
 impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let line_no_width = self.line_no_width();
-        // " ...  │"
-        writeln!(f, "{} {}", " ".repeat(line_no_width), Snake::Vertical)?;
-        // " ...  ┆"
-        let dots =
-            |f: &mut Formatter| write!(f, "{} {}", " ".repeat(line_no_width), Snake::VerticalDots);
-        let incoming_space =
-            |f: &mut Formatter| write!(f, "{}", if self.some_incoming() { "  " } else { "" });
+        self.line_no_space_then(Snake::Vertical, f)?;
+        writeln!(f)?;
 
         let mut incoming_style: Option<&Style> = None;
 
         let mut lines = self.0.iter().peekable();
         while let Some(Line { no: line_no, parts }) = lines.next() {
-            // write line number right-aligned
-            write!(f, "{:line_no_width$} │", line_no + 1)?;
+            self.line_no(*line_no, f)?;
             if let Some(style) = incoming_style {
                 write!(f, " {}", style(Snake::Vertical.to_string()))?;
             } else {
-                incoming_space(f)?;
+                self.incoming_space(f)?;
             }
 
             write!(f, " ")?;
@@ -470,13 +485,13 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             // print the line just below the code, e.g.
             // " ...  ┆ │ ... ─┬─ ... ─┬─ ... ▲"
             if !parts.skip_annotation_line() {
-                dots(f)?;
+                self.dots(f)?;
                 write!(f, " ")?;
                 if let Some(style) = incoming_style {
                     style(Snake::Vertical.to_string()).fmt(f)?;
                     parts.fmt_incoming(style, Snake::ArrowUp, f)?;
                 } else {
-                    incoming_space(f)?;
+                    self.incoming_space(f)?;
                 }
                 parts.fmt_arrows(f)?;
                 writeln!(f)?;
@@ -485,21 +500,21 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 Some(next_line) => next_line.no > line_no + 1,
                 None => false,
             } {
-                dots(f)?;
+                self.dots(f)?;
                 writeln!(f)?;
             }
 
             if let Some((code, text)) = &parts.incoming {
                 let style = incoming_style.take().unwrap();
 
-                dots(f)?;
+                self.dots(f)?;
                 write!(f, " ")?;
                 style(Snake::Vertical.to_string()).fmt(f)?;
                 parts.fmt_incoming(style, Snake::Vertical, f)?;
                 parts.fmt_inside_vert(0, f)?;
                 writeln!(f)?;
 
-                dots(f)?;
+                self.dots(f)?;
                 write!(f, " ")?;
                 if let Some(text) = text {
                     let snake =
@@ -516,8 +531,8 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             let incoming_width = width(&parts.incoming);
             let mut before = 0;
             let prefix = |f: &mut _| {
-                dots(f)?;
-                incoming_space(f)?;
+                self.dots(f)?;
+                self.incoming_space(f)?;
                 write!(f, " ")?;
                 " ".repeat(incoming_width).fmt(f)?;
                 Ok(())
@@ -543,7 +558,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
             // " ...  ┆ ╭─...─╯"
             if let Some((_, style)) = &parts.outgoing {
-                dots(f)?;
+                self.dots(f)?;
                 write!(f, " ")?;
                 style(Snake::up_line_up(incoming_width + width(&parts.inside) + 1)).fmt(f)?;
                 writeln!(f)?;
