@@ -367,12 +367,13 @@ impl<'a, T> Block<&'a str, T> {
                     lines.push((line_no, line, parts));
                 }
                 let parts = Parts {
-                    incoming: Some((0..end.bytes, 
+                    incoming: Some((
+                        0..end.bytes,
                         match label.kind {
                             LabelKind::WithText(t) => Some(t),
-                            _ => None
-                        }
-                        )),
+                            _ => None,
+                        },
+                    )),
                     ..Default::default()
                 };
                 lines.push((end.line_no, end.line, parts));
