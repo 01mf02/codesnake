@@ -139,7 +139,7 @@ impl<'a> LineIndex<'a> {
         Self(lines.collect())
     }
 
-    fn get(&self, offset: usize) -> Option<IndexEntry> {
+    fn get(&self, offset: usize) -> Option<IndexEntry<'_>> {
         use core::cmp::Ordering;
         let line_no = self.0.binary_search_by(|(line_start, line)| {
             if *line_start > offset {
