@@ -112,7 +112,7 @@
 extern crate alloc;
 
 use alloc::string::{String, ToString};
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{format, vec::Vec};
 use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 
@@ -176,7 +176,7 @@ enum LabelKind<T> {
 pub struct Label<C, T> {
     code: C,
     kind: LabelKind<T>,
-    style: Box<Style>,
+    style: Style,
 }
 
 impl<T> Label<Range<usize>, T> {
@@ -190,7 +190,7 @@ impl<T> Label<Range<usize>, T> {
         Self {
             code,
             kind: LabelKind::Marked,
-            style: Box::new(|s| s),
+            style: |s| s,
         }
     }
 }
@@ -214,11 +214,8 @@ impl<C, T> Label<C, T> {
 
     /// Use a custom style for drawing the label's snake.
     #[must_use]
-    pub fn with_style(self, style: impl Fn(String) -> String + 'static) -> Self {
-        Self {
-            style: Box::new(style),
-            ..self
-        }
+    pub fn with_style(self, style: fn(String) -> String) -> Self {
+        Self { style, ..self }
     }
 }
 
@@ -248,7 +245,7 @@ impl<C: Display> Display for CodeWidth<C> {
     }
 }
 
-type Style = dyn Fn(String) -> String;
+type Style = fn(String) -> String;
 
 /// Sequence of lines, containing code `C` and (label) text `T`.
 pub struct Block<C, T>(Vec<Option<Line<C, T>>>);
@@ -267,22 +264,24 @@ impl<C, T> Line<C, T> {
     }
 }
 
-type LabelStyle<T> = (LabelKind<T>, Option<Box<Style>>);
+type LabelStyle<T> = (LabelKind<T>, Option<Style>);
 
 /// Line parts, containing code `C` and (label) text `T`.
 struct LineParts<C, T> {
     incoming: Option<(C, Option<T>)>,
     inside: Vec<(C, Option<LabelStyle<T>>)>,
-    outgoing: Option<(C, Box<Style>)>,
+    outgoing: Option<(C, Style)>,
 }
 
 impl<C, T> LineParts<C, T> {
-    //// Skip lines that are purely Label::Unmarked derivates
-    /// ie. those that after segmentation have only LabelKind::Unmarked or None, but at least one Unmarked
-    fn skip_annotation_line(&self) -> bool {
-        let unmarked0 = |(_c, label): &_| matches!(label, Some((LabelKind::Unmarked, _)) | None);
-        let unmarked1 = |(_c, label): &_| matches!(label, Some((LabelKind::Unmarked, _)));
-        self.inside.iter().all(unmarked0) && self.inside.iter().any(unmarked1)
+    fn arrows_below(&self) -> bool {
+        let inside = |(_code, label): &_| {
+            matches!(
+                label,
+                Some((LabelKind::WithText(_) | LabelKind::Marked, _style))
+            )
+        };
+        self.incoming.is_some() || self.outgoing.is_some() || self.inside.iter().any(inside)
     }
 }
 
@@ -342,47 +341,50 @@ impl<'a, T> Block<&'a str, T> {
                 let label = (label.kind, Some(label.style));
                 parts.inside.push((start.bytes..end.bytes, Some(label)));
                 lines.push((start.line_no, start.line, parts));
-            } else if matches!(label.kind, LabelKind::Unmarked) {
-                for line_no in start.line_no..end.line_no {
-                    let line = idx.0[line_no].1;
-                    let parts = LineParts {
-                        inside: Vec::from([(0..0, Some((LabelKind::Unmarked, None)))]),
-                        ..Default::default()
-                    };
-                    lines.push((line_no, line, parts));
-                }
             } else {
-                parts.outgoing = Some((start.bytes..start.line.len(), label.style));
+                let snake = matches!(label.kind, LabelKind::WithText(_) | LabelKind::Marked);
+                if snake {
+                    parts.outgoing = Some((start.bytes..start.line.len(), label.style));
+                }
                 lines.push((start.line_no, start.line, parts));
+
                 for line_no in start.line_no + 1..end.line_no {
+                    let label = (LabelKind::Unmarked, Some(label.style));
                     let line = idx.0[line_no].1;
                     let parts = LineParts {
-                        inside: Vec::from([(0..line.len(), None)]),
+                        inside: Vec::from([(0..line.len(), Some(label))]),
                         ..Default::default()
                     };
                     lines.push((line_no, line, parts));
                 }
+                let text = match label.kind {
+                    LabelKind::WithText(t) => Some(t),
+                    _ => None,
+                };
                 let parts = LineParts {
-                    incoming: Some((
-                        0..end.bytes,
-                        match label.kind {
-                            LabelKind::WithText(t) => Some(t),
-                            _ => None,
-                        },
-                    )),
+                    incoming: snake.then_some((0..end.bytes, text)),
                     ..Default::default()
                 };
                 lines.push((end.line_no, end.line, parts));
             }
         }
 
-        let block = lines.into_iter().map(|(no, line, parts)| {
-            Some(Line {
-                no,
+        let mut prev_line_no = None;
+        let mut block = Vec::new();
+        for (line_no, line, parts) in lines {
+            if match prev_line_no {
+                Some(prev_line_no) => prev_line_no + 1 < line_no,
+                None => false,
+            } {
+                block.push(None);
+            }
+            prev_line_no = Some(line_no);
+            block.push(Some(Line {
+                no: line_no,
                 parts: parts.segment(line),
-            })
-        });
-        Some(Block(block.collect()))
+            }));
+        }
+        Some(Block(block))
     }
 }
 
@@ -405,8 +407,7 @@ impl<C, T> Block<C, T> {
     }
 
     fn line_no_width(&self) -> usize {
-        let lines = self.0.iter().flatten();
-        let max = lines.rev().next().unwrap().no + 1;
+        let max = self.0.iter().flatten().next_back().unwrap().no + 1;
         // number of digits; taken from https://stackoverflow.com/a/69302957
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
@@ -473,8 +474,16 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
         let mut incoming_style: Option<&Style> = None;
 
-        let mut lines = self.0.iter().flatten().peekable();
-        while let Some(Line { no: line_no, parts }) = lines.next() {
+        for line in self.0.iter() {
+            let Line { no: line_no, parts } = match line {
+                Some(line) => line,
+                None => {
+                    self.dots(f)?;
+                    writeln!(f)?;
+                    continue;
+                }
+            };
+
             self.line_no(*line_no, f)?;
             if let Some(style) = incoming_style {
                 write!(f, " {}", style(Snake::Vertical.to_string()))?;
@@ -488,7 +497,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
             // print the line just below the code, e.g.
             // " ...  ┆ │ ... ─┬─ ... ─┬─ ... ▲"
-            if !parts.skip_annotation_line() {
+            if parts.arrows_below() {
                 self.dots(f)?;
                 write!(f, " ")?;
                 if let Some(style) = incoming_style {
@@ -498,13 +507,6 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                     self.incoming_space(f)?;
                 }
                 parts.fmt_arrows(f)?;
-                writeln!(f)?;
-            } else if match lines.peek() {
-                // there is a next line that does not immediately follow the current
-                Some(next_line) => next_line.no > line_no + 1,
-                _ => false,
-            } {
-                self.dots(f)?;
                 writeln!(f)?;
             }
 
