@@ -280,13 +280,8 @@ impl<C, T> Parts<C, T> {
     //// Skip lines that are purely Label::Unmarked derivates
     /// ie. those that after segmentation have only LabelKind::Unmarked or None, but at least one Unmarked
     fn skip_annotation_line(&self) -> bool {
-        self.inside
-            .iter()
-            .all(|(_c, label)| matches!(label, None | Some((LabelKind::Unmarked, _))))
-            && self
-                .inside
-                .iter()
-                .any(|(_c, label)| matches!(label, Some((LabelKind::Unmarked, _))))
+        let unmarked = |(_c, label): &_| matches!(label, None | Some((LabelKind::Unmarked, _)));
+        self.inside.iter().all(unmarked) && self.inside.iter().any(unmarked)
     }
 }
 
@@ -457,7 +452,8 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
         let mut incoming_style: Option<&Style> = None;
 
-        for (this_part_index, Line { no: line_no, parts }) in self.0.iter().enumerate() {
+        let mut lines = self.0.iter().peekable();
+        while let Some(Line { no: line_no, parts }) = lines.next() {
             // write line number right-aligned
             write!(f, "{:line_no_width$} │", line_no + 1)?;
             if let Some(style) = incoming_style {
@@ -483,9 +479,11 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 }
                 parts.fmt_arrows(f)?;
                 writeln!(f)?;
-            } else if this_part_index + 1 < self.0.len()
-                && self.0[this_part_index + 1].no > *line_no + 1
-            {
+            } else if match lines.peek() {
+                // there is a next line that does not immediately follow the current
+                Some(next_line) => next_line.no > line_no + 1,
+                None => false,
+            } {
                 dots(f)?;
                 writeln!(f)?;
             }
