@@ -251,11 +251,11 @@ impl<C: Display> Display for CodeWidth<C> {
 type Style = dyn Fn(String) -> String;
 
 /// Sequence of lines, containing code `C` and (label) text `T`.
-pub struct Block<C, T>(Vec<Line<C, T>>);
+pub struct Block<C, T>(Vec<Option<Line<C, T>>>);
 
 struct Line<C, T> {
     no: usize,
-    parts: Parts<C, T>,
+    parts: LineParts<C, T>,
 }
 
 impl<C, T> Line<C, T> {
@@ -270,13 +270,13 @@ impl<C, T> Line<C, T> {
 type LabelStyle<T> = (LabelKind<T>, Option<Box<Style>>);
 
 /// Line parts, containing code `C` and (label) text `T`.
-struct Parts<C, T> {
+struct LineParts<C, T> {
     incoming: Option<(C, Option<T>)>,
     inside: Vec<(C, Option<LabelStyle<T>>)>,
     outgoing: Option<(C, Box<Style>)>,
 }
 
-impl<C, T> Parts<C, T> {
+impl<C, T> LineParts<C, T> {
     //// Skip lines that are purely Label::Unmarked derivates
     /// ie. those that after segmentation have only LabelKind::Unmarked or None, but at least one Unmarked
     fn skip_annotation_line(&self) -> bool {
@@ -286,7 +286,7 @@ impl<C, T> Parts<C, T> {
     }
 }
 
-impl<C, T> Default for Parts<C, T> {
+impl<C, T> Default for LineParts<C, T> {
     fn default() -> Self {
         Self {
             incoming: None,
@@ -333,9 +333,9 @@ impl<'a, T> Block<&'a str, T> {
                 Some((line_no, _line, parts)) if line_no == start.line_no => parts,
                 Some(line) => {
                     lines.push(line);
-                    Parts::default()
+                    LineParts::default()
                 }
-                None => Parts::default(),
+                None => LineParts::default(),
             };
 
             if start.line_no == end.line_no {
@@ -345,7 +345,7 @@ impl<'a, T> Block<&'a str, T> {
             } else if matches!(label.kind, LabelKind::Unmarked) {
                 for line_no in start.line_no..end.line_no {
                     let line = idx.0[line_no].1;
-                    let parts = Parts {
+                    let parts = LineParts {
                         inside: Vec::from([(0..0, Some((LabelKind::Unmarked, None)))]),
                         ..Default::default()
                     };
@@ -356,13 +356,13 @@ impl<'a, T> Block<&'a str, T> {
                 lines.push((start.line_no, start.line, parts));
                 for line_no in start.line_no + 1..end.line_no {
                     let line = idx.0[line_no].1;
-                    let parts = Parts {
+                    let parts = LineParts {
                         inside: Vec::from([(0..line.len(), None)]),
                         ..Default::default()
                     };
                     lines.push((line_no, line, parts));
                 }
-                let parts = Parts {
+                let parts = LineParts {
                     incoming: Some((
                         0..end.bytes,
                         match label.kind {
@@ -376,9 +376,11 @@ impl<'a, T> Block<&'a str, T> {
             }
         }
 
-        let block = lines.into_iter().map(|(no, line, parts)| Line {
-            no,
-            parts: parts.segment(line),
+        let block = lines.into_iter().map(|(no, line, parts)| {
+            Some(Line {
+                no,
+                parts: parts.segment(line),
+            })
         });
         Some(Block(block.collect()))
     }
@@ -393,16 +395,18 @@ impl<C, T> Block<C, T> {
     /// Apply function to code.
     #[must_use]
     pub fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> Block<C1, T> {
-        let f = |line: Line<C, T>| line.map_code(&mut f);
+        let f = |line: Option<Line<C, T>>| line.map(|line| line.map_code(&mut f));
         Block(self.0.into_iter().map(f).collect())
     }
 
     fn some_incoming(&self) -> bool {
-        self.0.iter().any(|line| line.parts.incoming.is_some())
+        let mut lines = self.0.iter().flatten();
+        lines.any(|line| line.parts.incoming.is_some())
     }
 
     fn line_no_width(&self) -> usize {
-        let max = self.0.last().unwrap().no + 1;
+        let lines = self.0.iter().flatten();
+        let max = lines.rev().next().unwrap().no + 1;
         // number of digits; taken from https://stackoverflow.com/a/69302957
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
@@ -469,7 +473,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
         let mut incoming_style: Option<&Style> = None;
 
-        let mut lines = self.0.iter().peekable();
+        let mut lines = self.0.iter().flatten().peekable();
         while let Some(Line { no: line_no, parts }) = lines.next() {
             self.line_no(*line_no, f)?;
             if let Some(style) = incoming_style {
@@ -498,7 +502,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             } else if match lines.peek() {
                 // there is a next line that does not immediately follow the current
                 Some(next_line) => next_line.no > line_no + 1,
-                None => false,
+                _ => false,
             } {
                 self.dots(f)?;
                 writeln!(f)?;
@@ -570,7 +574,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
     }
 }
 
-impl<C: Display, T> Parts<C, T> {
+impl<C: Display, T> LineParts<C, T> {
     fn fmt_code(&self, mut incoming: Option<&Style>, f: &mut Formatter) -> fmt::Result {
         if let Some((code, _text)) = &self.incoming {
             let style = incoming.take().unwrap();
@@ -592,8 +596,8 @@ impl<C: Display, T> Parts<C, T> {
     }
 }
 
-impl<T> Parts<Range<usize>, T> {
-    fn segment(self, line: &str) -> Parts<&str, T> {
+impl<T> LineParts<Range<usize>, T> {
+    fn segment(self, line: &str) -> LineParts<&str, T> {
         let len = line.len();
         let start = self.incoming.as_ref().map_or(0, |(code, _)| code.end);
         let end = self.outgoing.as_ref().map_or(len, |(code, _)| code.start);
@@ -607,7 +611,7 @@ impl<T> Parts<Range<usize>, T> {
             pos = code.end;
             unlabelled.into_iter().chain([labelled])
         });
-        Parts {
+        LineParts {
             incoming: self.incoming.map(|(code, text)| (&line[..code.end], text)),
             inside: inside.chain(unlabelled(last, end)).collect(),
             outgoing: self.outgoing.map(|(code, sty)| (&line[code.start..], sty)),
@@ -615,11 +619,11 @@ impl<T> Parts<Range<usize>, T> {
     }
 }
 
-impl<C, T> Parts<C, T> {
+impl<C, T> LineParts<C, T> {
     #[must_use]
-    fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> Parts<C1, T> {
+    fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> LineParts<C1, T> {
         let inside = self.inside.into_iter();
-        Parts {
+        LineParts {
             incoming: self.incoming.map(|(code, text)| (f(code), text)),
             inside: inside.map(|(code, label)| (f(code), label)).collect(),
             outgoing: self.outgoing.map(|(code, style)| (f(code), style)),
@@ -631,7 +635,7 @@ fn width<'a, C: 'a, T: 'a>(i: impl IntoIterator<Item = &'a (CodeWidth<C>, T)>) -
     i.into_iter().map(|(code, _)| code.width).sum()
 }
 
-impl<C, T> Parts<CodeWidth<C>, T> {
+impl<C, T> LineParts<CodeWidth<C>, T> {
     /// Position of the end of the rightmost label.
     fn width(&self) -> usize {
         width(&self.inside) + width(&self.incoming) + width(&self.outgoing)
