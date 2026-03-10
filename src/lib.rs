@@ -458,6 +458,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
         let mut incoming_style: Option<&Style> = None;
 
         for (this_part_index, Line { no: line_no, parts }) in self.0.iter().enumerate() {
+            // write line number right-aligned
             write!(f, "{:line_no_width$} │", line_no + 1)?;
             if let Some(style) = incoming_style {
                 write!(f, " {}", style(Snake::Vertical.to_string()))?;
@@ -469,6 +470,8 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             parts.fmt_code(incoming_style, f)?;
             writeln!(f)?;
 
+            // print the line just below the code, e.g.
+            // " ...  ┆ │ ... ─┬─ ... ─┬─ ... ▲"
             if !parts.skip_annotation_line() {
                 dots(f)?;
                 write!(f, " ")?;
@@ -523,12 +526,13 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
             for (i, (code, text_style)) in parts.inside.iter().enumerate() {
                 if let Some((LabelKind::WithText(text), Some(style))) = text_style {
                     prefix(f)?;
+                    // "... │ ... │"
                     parts.fmt_inside_vert(i, f)?;
                     writeln!(f)?;
 
                     prefix(f)?;
 
-                    // print something like "╰─...─ text"
+                    // "╰─...─ {text}"
                     let (left, right) = code.left_right();
                     let after = width(&parts.inside) - before - code.width + width(&parts.outgoing);
                     let snake = Snake::down_line(right + after + 1);
@@ -538,6 +542,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 before += code.width;
             }
 
+            // " ...  ┆ ╭─...─╯"
             if let Some((_, style)) = &parts.outgoing {
                 dots(f)?;
                 write!(f, " ")?;
