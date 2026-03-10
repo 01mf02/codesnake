@@ -386,7 +386,11 @@ fn u_color() {
     }
     let labels: Vec<_> = line_ranges
         .into_iter()
-        .map(|(start, end)| Label::new(start..end).unmarked().with_style(|s| format!("<start>{s}</stop>")))
+        .map(|(start, end)| {
+            Label::new(start..end)
+                .unmarked()
+                .with_style(|s| format!("<start>{s}</stop>"))
+        })
         .collect();
     let actual = format_vec(SRC, labels);
     println!("{actual}");
@@ -435,10 +439,7 @@ fn utu() {
 fn u_u() {
     let should = format(
         SRC,
-        [
-            Label::new(4..4).unmarked(),
-            Label::new(70..70).unmarked(),
-        ],
+        [Label::new(4..4).unmarked(), Label::new(70..70).unmarked()],
     );
     println!("{should}");
     assert_eq!(
@@ -484,7 +485,9 @@ fn u_t_color() {
     let should = format(
         SRC,
         [
-            Label::new(0..3).unmarked().with_style(|s| format!("<span>{s}</span>")),
+            Label::new(0..3)
+                .unmarked()
+                .with_style(|s| format!("<span>{s}</span>")),
             Label::new(70..70).with_text("!"),
         ],
     );
