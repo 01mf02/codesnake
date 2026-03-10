@@ -251,7 +251,21 @@ impl<C: Display> Display for CodeWidth<C> {
 type Style = dyn Fn(String) -> String;
 
 /// Sequence of lines, containing code `C` and (label) text `T`.
-pub struct Block<C, T>(Vec<(usize, Parts<C, T>)>);
+pub struct Block<C, T>(Vec<Line<C, T>>);
+
+struct Line<C, T> {
+    no: usize,
+    parts: Parts<C, T>,
+}
+
+impl<C, T> Line<C, T> {
+    fn map_code<C1>(self, f: impl FnMut(C) -> C1) -> Line<C1, T> {
+        Line {
+            no: self.no,
+            parts: self.parts.map_code(f),
+        }
+    }
+}
 
 type TextStyle<T> = (LabelKind<T>, Option<Box<Style>>);
 
@@ -365,9 +379,10 @@ impl<'a, T> Block<&'a str, T> {
             }
         }
 
-        let block = lines
-            .into_iter()
-            .map(|(line_no, line, parts)| (line_no, parts.segment(line)));
+        let block = lines.into_iter().map(|(no, line, parts)| Line {
+            no,
+            parts: parts.segment(line),
+        });
         Some(Block(block.collect()))
     }
 }
@@ -381,17 +396,16 @@ impl<C, T> Block<C, T> {
     /// Apply function to code.
     #[must_use]
     pub fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> Block<C1, T> {
-        let lines = self.0.into_iter();
-        let lines = lines.map(|(no, parts)| (no, parts.map_code(&mut f)));
-        Block(lines.collect())
+        let f = |line: Line<C, T>| line.map_code(&mut f);
+        Block(self.0.into_iter().map(f).collect())
     }
 
     fn some_incoming(&self) -> bool {
-        self.0.iter().any(|(.., parts)| parts.incoming.is_some())
+        self.0.iter().any(|line| line.parts.incoming.is_some())
     }
 
     fn line_no_width(&self) -> usize {
-        let max = self.0.last().unwrap().0 + 1;
+        let max = self.0.last().unwrap().no + 1;
         // number of digits; taken from https://stackoverflow.com/a/69302957
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
@@ -442,7 +456,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
 
         let mut incoming_style: Option<&Style> = None;
 
-        for (this_part_index, (line_no, parts)) in self.0.iter().enumerate() {
+        for (this_part_index, Line { no: line_no, parts }) in self.0.iter().enumerate() {
             write!(f, "{:line_no_width$} │", line_no + 1)?;
             if let Some(style) = incoming_style {
                 write!(f, " {}", style(Snake::Vertical.to_string()))?;
@@ -466,7 +480,7 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 parts.fmt_arrows(f)?;
                 writeln!(f)?;
             } else if this_part_index + 1 < self.0.len()
-                && self.0[this_part_index + 1].0 > *line_no + 1
+                && self.0[this_part_index + 1].no > *line_no + 1
             {
                 dots(f)?;
                 writeln!(f)?;
