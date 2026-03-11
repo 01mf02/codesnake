@@ -1,32 +1,27 @@
 use codesnake::{Block, CodeWidth, Label, LineIndex};
+use core::fmt::{self, Formatter};
 use core::ops::Range;
 use pretty_assertions::assert_eq;
 
-fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str>; N]) -> String {
+fn paint(f: &mut Formatter, style: &bool, s: &str) -> fmt::Result {
+    if *style {
+        write!(f, "<span>{s}</span>")
+    } else {
+        write!(f, "{s}")
+    }
+}
+
+fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str, bool>; N]) -> String {
     let idx = LineIndex::new(code);
 
     let mut prev_empty = false;
-    let block = Block::new(&idx, labels).unwrap().map_code(|s| {
+    let block = Block::new(&idx, labels).unwrap();
+    let block = block.with_paint(paint).map_code(|s| {
         let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
         CodeWidth::new(s, core::cmp::max(w, 1) - sub)
     });
-    format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
-}
-
-fn format_vec(code: &str, labels: Vec<Label<Range<usize>, &str>>) -> String {
-    let idx = LineIndex::new(code);
-
-    let mut prev_empty = false;
-    let block = Block::new(&idx, labels)
-        .expect("failed to construct block")
-        .map_code(|s| {
-            let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
-            let s = s.replace('\t', "    ");
-            let w = unicode_width::UnicodeWidthStr::width(&*s);
-            CodeWidth::new(s, core::cmp::max(w, 1) - sub)
-        });
     format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
 }
 
@@ -350,19 +345,8 @@ fn utmtu() {
 
 #[test]
 fn u() {
-    let mut line_starts: Vec<_> = SRC
-        .char_indices()
-        .filter_map(|(i, c)| if c == '\n' { Some(i) } else { None })
-        .collect();
-    line_starts.push(SRC.len() - 1);
-    let labels: Vec<_> = line_starts
-        .into_iter()
-        .map(|start| Label::new(start..start).unmarked())
-        .collect();
-    let actual = format_vec(SRC, labels);
-    println!("{actual}");
     assert_eq!(
-        actual,
+        format(SRC, [Label::new(0..72).unmarked(),]),
         "
   ╭─
   │
@@ -376,32 +360,16 @@ fn u() {
 }
 
 #[test]
-fn u_color() {
-    let mut line_ranges = Vec::new();
-    let mut offset = 0;
-    for line in SRC.lines() {
-        line_ranges.push((offset, offset + line.len()));
-        offset += line.len() + 1; // +1 for the newline character
-    }
-    let labels: Vec<_> = line_ranges
-        .into_iter()
-        .map(|(start, end)| {
-            Label::new(start..end)
-                .unmarked()
-                .with_style(|s| format!("<start>{s}</stop>"))
-        })
-        .collect();
-    let actual = format_vec(SRC, labels);
-    println!("{actual}");
+fn u_style() {
     assert_eq!(
-        actual,
+        format(SRC, [Label::new(0..72).unmarked().with_style(true)]),
         "
   ╭─
   │
-1 │ <start>foo bar</stop>
-2 │ <start>baz toto</stop>
-3 │ <start>look, a fish 🐟 and a hook 🪝</stop>
-4 │ <start>this is getting silly</stop>
+1 │ <span>foo bar</span>
+2 │ <span>baz toto</span>
+3 │ <span>look, a fish 🐟 and a hook 🪝</span>
+4 │ <span>this is getting silly</span>
 ──╯
 "
     );
@@ -480,13 +448,11 @@ fn u_t() {
 }
 
 #[test]
-fn u_t_color() {
+fn u_t_style() {
     let should = format(
         SRC,
         [
-            Label::new(0..3)
-                .unmarked()
-                .with_style(|s| format!("<span>{s}</span>")),
+            Label::new(0..3).unmarked().with_style(true),
             Label::new(70..70).with_text("!"),
         ],
     );
@@ -506,6 +472,7 @@ fn u_t_color() {
 "
     );
 }
+
 #[test]
 fn m_u() {
     let should = format(
