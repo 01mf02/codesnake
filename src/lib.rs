@@ -269,17 +269,14 @@ type LabelStyle<T> = (LabelKind<T>, Option<Style>);
 /// Line parts, containing code `C` and (label) text `T`.
 struct LineParts<C, T> {
     incoming: Option<(C, Option<T>)>,
-    inside: Vec<(C, Option<LabelStyle<T>>)>,
+    inside: Vec<(C, LabelStyle<T>)>,
     outgoing: Option<(C, Style)>,
 }
 
 impl<C, T> LineParts<C, T> {
     fn arrows_below(&self) -> bool {
         let inside = |(_code, label): &_| {
-            matches!(
-                label,
-                Some((LabelKind::WithText(_) | LabelKind::Marked, _style))
-            )
+            matches!(label, (LabelKind::WithText(_) | LabelKind::Marked, _style))
         };
         self.incoming.is_some() || self.outgoing.is_some() || self.inside.iter().any(inside)
     }
@@ -339,7 +336,7 @@ impl<'a, T> Block<&'a str, T> {
 
             if start.line_no == end.line_no {
                 let label = (label.kind, Some(label.style));
-                parts.inside.push((start.bytes..end.bytes, Some(label)));
+                parts.inside.push((start.bytes..end.bytes, label));
                 lines.push((start.line_no, start.line, parts));
             } else {
                 let snake = matches!(label.kind, LabelKind::WithText(_) | LabelKind::Marked);
@@ -352,7 +349,7 @@ impl<'a, T> Block<&'a str, T> {
                     let label = (LabelKind::Unmarked, Some(label.style));
                     let line = idx.0[line_no].1;
                     let parts = LineParts {
-                        inside: Vec::from([(0..line.len(), Some(label))]),
+                        inside: Vec::from([(0..line.len(), label)]),
                         ..Default::default()
                     };
                     lines.push((line_no, line, parts));
@@ -544,7 +541,8 @@ impl<C: Display, T: Display> Display for Block<CodeWidth<C>, T> {
                 Ok(())
             };
             for (i, (code, text_style)) in parts.inside.iter().enumerate() {
-                if let Some((LabelKind::WithText(text), Some(style))) = text_style {
+                // TODO: what if we have no style?
+                if let (LabelKind::WithText(text), Some(style)) = text_style {
                     prefix(f)?;
                     // "... │ ... │"
                     parts.fmt_inside_vert(i, f)?;
@@ -584,11 +582,9 @@ impl<C: Display, T> LineParts<C, T> {
         }
 
         for (code, label) in &self.inside {
-            match (label, incoming) {
-                (Some((_text, Some(style))), _) => write!(f, "{}", style(code.to_string()))?,
-                (None, Some(style)) => write!(f, "{}", style(code.to_string()))?,
-                (None, None) => write!(f, "{code}")?,
-                (Some((_, None)), _) => {}
+            match label {
+                (_, Some(style)) => write!(f, "{}", style(code.to_string()))?,
+                (_, None) => write!(f, "{code}")?,
             }
         }
         if let Some((code, style)) = &self.outgoing {
@@ -606,7 +602,8 @@ impl<T> LineParts<Range<usize>, T> {
         let last = self.inside.last().map_or(start, |(code, _)| code.end);
 
         let mut pos = start;
-        let unlabelled = |start, end| (start < end).then(|| (&line[start..end], None));
+        let unlabelled =
+            |start, end| (start < end).then(|| (&line[start..end], (LabelKind::Unmarked, None)));
         let inside = self.inside.into_iter().flat_map(|(code, label)| {
             let unlabelled = unlabelled(pos, code.start);
             let labelled = (&line[code.start..code.end], label);
@@ -662,14 +659,13 @@ impl<C, T> LineParts<CodeWidth<C>, T> {
 
         for (code, label) in &self.inside[from..] {
             match label {
-                Some((LabelKind::WithText(_text), Some(style))) => {
+                (LabelKind::WithText(_text), Some(style)) => {
                     let (left, right) = code.left_right();
                     style(s2(left, right)).fmt(f)?
                 }
-                Some((LabelKind::Marked, Some(style))) => style(s1(code.width)).fmt(f)?,
-                Some((LabelKind::Unmarked, _)) => " ".fmt(f)?,
-                Some((_, None)) => unreachable!(),
-                None => " ".repeat(code.width).fmt(f)?,
+                (LabelKind::Marked, Some(style)) => style(s1(code.width)).fmt(f)?,
+                (LabelKind::Unmarked, _) => " ".repeat(code.width).fmt(f)?,
+                (_, None) => unreachable!(),
             }
         }
         Ok(())
