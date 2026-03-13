@@ -50,7 +50,7 @@ const SRC: &str = "foo bar\nbaz toto\nlook, a fish 🐟 and a hook 🪝\nthis is
 #[test]
 fn sn() {
     assert_eq!(
-        format(SRC, [Label::new(4..7)]),
+        format(SRC, [Label::new(4..7).with_snake()]),
         "
   ╭─
   │
@@ -64,7 +64,10 @@ fn sn() {
 #[test]
 fn snsn() {
     assert_eq!(
-        format(SRC, [Label::new(0..3), Label::new(4..7)]),
+        format(
+            SRC,
+            [Label::new(0..3).with_snake(), Label::new(4..7).with_snake()]
+        ),
         "
   ╭─
   │
@@ -78,7 +81,13 @@ fn snsn() {
 #[test]
 fn snmn() {
     assert_eq!(
-        format(SRC, [Label::new(0..3), Label::new(4..11)]),
+        format(
+            SRC,
+            [
+                Label::new(0..3).with_snake(),
+                Label::new(4..11).with_snake()
+            ]
+        ),
         "
   ╭─
   │
@@ -127,7 +136,7 @@ fn stmtst() {
 #[test]
 fn mmn() {
     assert_eq!(
-        format(SRC, [Label::new(4..21)]),
+        format(SRC, [Label::new(4..21).with_snake()]),
         "
   ╭─
   │
@@ -197,7 +206,10 @@ fn mtmt() {
 #[test]
 fn empty() {
     assert_eq!(
-        format(SRC, [Label::new(2..2), Label::new(4..7)]),
+        format(
+            SRC,
+            [Label::new(2..2).with_snake(), Label::new(4..7).with_snake()]
+        ),
         "
   ╭─
   │
@@ -211,7 +223,10 @@ fn empty() {
 #[test]
 fn adjacent() {
     assert_eq!(
-        format(SRC, [Label::new(0..3), Label::new(3..7)]),
+        format(
+            SRC,
+            [Label::new(0..3).with_snake(), Label::new(3..7).with_snake()]
+        ),
         "
   ╭─
   │
@@ -243,10 +258,7 @@ fn the_end_plus_unmarked() {
     assert_eq!(
         format(
             SRC,
-            [
-                Label::new(25..34).unmarked(),
-                Label::new(72..72).with_text("the end"),
-            ]
+            [Label::new(25..34), Label::new(72..72).with_text("the end"),]
         ),
         "
   ╭─
@@ -267,7 +279,7 @@ fn the_end_plus_unmarked_with_snake() {
         format(
             SRC,
             [
-                Label::new(24..24).unmarked(),
+                Label::new(24..24),
                 Label::new(25..25).with_text("hello"),
                 Label::new(72..72).with_text("the end"),
             ]
@@ -296,7 +308,7 @@ fn mtmt_unmarked() {
             [
                 Label::new(4..11).with_text("ba?"),
                 Label::new(12..21).with_text("four-letter words"),
-                Label::new(72..72).unmarked(),
+                Label::new(72..72),
             ]
         ),
         "
@@ -326,9 +338,9 @@ fn utmtu() {
         format(
             SRC,
             [
-                Label::new(4..11).unmarked(),
+                Label::new(4..11),
                 Label::new(12..21).with_text("four-letter words"),
-                Label::new(72..72).unmarked(),
+                Label::new(72..72),
             ]
         ),
         "
@@ -351,7 +363,7 @@ fn utmtu() {
 #[test]
 fn u() {
     assert_eq!(
-        format(SRC, [Label::new(0..72).unmarked(),]),
+        format(SRC, [Label::new(0..72)]),
         "
   ╭─
   │
@@ -367,7 +379,7 @@ fn u() {
 #[test]
 fn u_style() {
     assert_eq!(
-        format(SRC, [Label::new(0..72).unmarked().with_style(true)]),
+        format(SRC, [Label::new(0..72).with_style(true)]),
         "
   ╭─
   │
@@ -385,9 +397,9 @@ fn utu() {
     let should = format(
         SRC,
         [
-            Label::new(4..4).unmarked(),
+            Label::new(4..4),
             Label::new(25..25).with_text("hello"),
-            Label::new(70..70).unmarked(),
+            Label::new(70..70),
         ],
     );
     println!("{should}");
@@ -409,10 +421,7 @@ fn utu() {
 }
 #[test]
 fn u_u() {
-    let should = format(
-        SRC,
-        [Label::new(4..4).unmarked(), Label::new(70..70).unmarked()],
-    );
+    let should = format(SRC, [Label::new(4..4), Label::new(70..70)]);
     println!("{should}");
     assert_eq!(
         should,
@@ -428,13 +437,7 @@ fn u_u() {
 }
 #[test]
 fn u_t() {
-    let should = format(
-        SRC,
-        [
-            Label::new(4..4).unmarked(),
-            Label::new(70..70).with_text("!"),
-        ],
-    );
+    let should = format(SRC, [Label::new(4..4), Label::new(70..70).with_text("!")]);
     println!("{should}");
     assert_eq!(
         should,
@@ -457,7 +460,7 @@ fn u_t_style() {
     let should = format(
         SRC,
         [
-            Label::new(0..3).unmarked().with_style(true),
+            Label::new(0..3).with_style(true),
             Label::new(70..70).with_text("!"),
         ],
     );
@@ -482,10 +485,7 @@ fn u_t_style() {
 fn m_u() {
     let should = format(
         SRC,
-        [
-            Label::new(4..4).with_text("hello"),
-            Label::new(70..70).unmarked(),
-        ],
+        [Label::new(4..4).with_text("hello"), Label::new(70..70)],
     );
     println!("{should}");
     assert_eq!(

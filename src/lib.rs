@@ -98,7 +98,7 @@
 //! # let src = r#"if true { 42 } else { "42" }"#;
 //! # let idx = LineIndex::new(src);
 //! # let range = 8..14;
-//! let label = Label::<_, &str, _>::new(range).with_style(Color::Red).unmarked();
+//! let label = Label::<_, &str, _>::new(range).with_style(Color::Red);
 //! # let block = Block::new(&idx, [label]).unwrap().map_code(|c| CodeWidth::new(c, c.len()));
 //! let block = block.with_paint(|f, style, code| {
 //!     if *style == Color::default() {
@@ -117,7 +117,7 @@
 //! # let src = r#"if true { 42 } else { "42" }"#;
 //! # let idx = LineIndex::new(src);
 //! # let range = 8..14;
-//! let label = Label::<_, &str, _>::new(range).with_style("color:red").unmarked();
+//! let label = Label::<_, &str, _>::new(range).with_style("color:red");
 //! # let block = Block::new(&idx, [label]).unwrap().map_code(|c| CodeWidth::new(c, c.len()));
 //! let block = block.with_paint(|f, style, code| {
 //!     if style.is_empty() {
@@ -235,24 +235,24 @@ impl<T, S: Default> Label<Range<usize>, T, S> {
     pub fn new(code: Range<usize>) -> Self {
         Self {
             code,
-            kind: LabelKind::Snake,
+            kind: LabelKind::None,
             style: S::default(),
         }
     }
 }
 
 impl<C, T, S> Label<C, T, S> {
-    /// Provide text for the label.
+    /// Create a snake label with text.
     #[must_use]
     pub fn with_text(self, text: T) -> Self {
         let kind = LabelKind::Text(text);
         Self { kind, ..self }
     }
 
-    /// Create an unmarked label (just the source line, no annotation)
+    /// Create a snake label without text.
     #[must_use]
-    pub fn unmarked(self) -> Self {
-        let kind = LabelKind::None;
+    pub fn with_snake(self) -> Self {
+        let kind = LabelKind::Snake;
         Self { kind, ..self }
     }
 
