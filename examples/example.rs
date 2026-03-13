@@ -50,6 +50,7 @@ fn main() {
 
     let filename = from_fn(|f| paint(f, &Color::Red, &"[fac.lisp]"));
     println!("{}{filename}", block.prologue());
+    println!("{}", block.space_vert());
     print!("{block}");
     println!("{}", block.epilogue());
 }
