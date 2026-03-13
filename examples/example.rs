@@ -8,13 +8,13 @@ use yansi::{Color, Paint};
 const SRC: &str = r#"(defun factorial (n) (if (zerop n) 1
         (* n (factorial (1- n)))))"#;
 
-fn paint_html(f: &mut Formatter, color: &Color, s: &str) -> fmt::Result {
+fn paint_html(f: &mut Formatter, color: &Color, s: &dyn Display) -> fmt::Result {
     let mut color = format!("{color:?}");
     color.make_ascii_lowercase();
     write!(f, "<span style=\"color:{color}\">{s}</span>")
 }
 
-fn paint_ansi(f: &mut Formatter, color: &Color, s: &str) -> fmt::Result {
+fn paint_ansi(f: &mut Formatter, color: &Color, s: &dyn Display) -> fmt::Result {
     s.fg(*color).fmt(f)
 }
 

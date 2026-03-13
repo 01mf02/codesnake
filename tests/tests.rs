@@ -1,9 +1,9 @@
 use codesnake::{Block, CodeWidth, Label, LineIndex};
-use core::fmt::{self, Formatter};
+use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 use pretty_assertions::assert_eq;
 
-fn paint(f: &mut Formatter, style: &bool, s: &str) -> fmt::Result {
+fn paint(f: &mut Formatter, style: &bool, s: &dyn Display) -> fmt::Result {
     if *style {
         write!(f, "<span>{s}</span>")
     } else {
@@ -22,7 +22,12 @@ fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str, bool>; 
         let w = unicode_width::UnicodeWidthStr::width(&*s);
         CodeWidth::new(s, core::cmp::max(w, 1) - sub)
     });
-    format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
+    format!(
+        "\n{}\n{}\n{block}{}\n",
+        block.prologue(),
+        block.space_vert(),
+        block.epilogue()
+    )
 }
 
 fn main() {

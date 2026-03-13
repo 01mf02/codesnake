@@ -93,24 +93,45 @@
 //! This allows you to color the snakes of a label as follows:
 //!
 //! ~~~
-//! use codesnake::Label;
-//! use yansi::Paint;
-//! # let (range, text) = (8..14, "this is of type Nat");
-//! let label = Label::new(range).with_text(text).with_style(yansi::Color::Red);
+//! use codesnake::{Block, CodeWidth, Label, LineIndex};
+//! use yansi::{Color, Paint};
+//! # let src = r#"if true { 42 } else { "42" }"#;
+//! # let idx = LineIndex::new(src);
+//! # let range = 8..14;
+//! let label = Label::<_, &str, _>::new(range).with_style(Color::Red).unmarked();
+//! # let block = Block::new(&idx, [label]).unwrap().map_code(|c| CodeWidth::new(c, c.len()));
+//! let block = block.with_paint(|f, style, code| {
+//!     if *style == Color::default() {
+//!         write!(f, "{code}")
+//!     } else {
+//!         write!(f, "{}", code.fg(*style))
+//!     }
+//! });
+//! assert_eq!(block.to_string(), "1 │ if true \u{1b}[31m{ 42 }\u{1b}[0m else { \"42\" }\n");
 //! ~~~
 //!
 //! For HTML, you can use something like:
 //!
 //! ~~~
-//! use codesnake::Label;
-//! # let (range, text) = (8..14, "this is of type Nat");
-//! let label = Label::new(range).with_text(text).with_style("color:red");
+//! use codesnake::{Block, CodeWidth, Label, LineIndex};
+//! # let src = r#"if true { 42 } else { "42" }"#;
+//! # let idx = LineIndex::new(src);
+//! # let range = 8..14;
+//! let label = Label::<_, &str, _>::new(range).with_style("color:red").unmarked();
+//! # let block = Block::new(&idx, [label]).unwrap().map_code(|c| CodeWidth::new(c, c.len()));
+//! let block = block.with_paint(|f, style, code| {
+//!     if style.is_empty() {
+//!         write!(f, "{code}")
+//!     } else {
+//!         write!(f, "<span style=\"{style}\">{code}</span>")
+//!     }
+//! });
+//! assert_eq!(block.to_string(), "1 │ if true <span style=\"color:red\">{ 42 }</span> else { \"42\" }\n");
 //! ~~~
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::{format, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
 
@@ -165,12 +186,6 @@ struct IndexEntry<'a> {
     bytes: usize,
 }
 
-enum LabelKind<T> {
-    None,
-    Snake,
-    Text(T),
-}
-
 impl<T> LabelKind<T> {
     fn has_snake(&self) -> bool {
         match self {
@@ -183,6 +198,22 @@ impl<T> LabelKind<T> {
         match self {
             Self::None | Self::Snake => None,
             Self::Text(t) => Some(t),
+        }
+    }
+
+    fn snake<'a, C, S1: Display + 'a, S2: Display + 'a>(
+        &'a self,
+        code: &CodeWidth<C>,
+        snake: fn(usize) -> S1,
+        text: fn(usize, usize) -> S2,
+    ) -> Box<dyn Display + 'a> {
+        match self {
+            LabelKind::Text(_text) => {
+                let (left, right) = code.left_right();
+                Box::new(text(left, right))
+            }
+            LabelKind::Snake => Box::new(snake(code.width)),
+            LabelKind::None => Box::new(space(code.width)),
         }
     }
 }
@@ -258,7 +289,28 @@ impl<C: Display> Display for CodeWidth<C> {
     }
 }
 
-type Paint<S> = fn(&mut Formatter, &S, &str) -> fmt::Result;
+type Paint<S> = fn(&mut Formatter, &S, &dyn Display) -> fmt::Result;
+
+struct FromFn<F>(F);
+
+fn from_fn<F: Fn(&mut Formatter) -> fmt::Result>(f: F) -> FromFn<F> {
+    FromFn(f)
+}
+
+impl<F> Display for FromFn<F>
+where
+    F: Fn(&mut Formatter) -> fmt::Result,
+{
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        (self.0)(f)
+    }
+}
+
+enum LabelKind<T> {
+    None,
+    Snake,
+    Text(T),
+}
 
 /// Sequence of lines, containing code `C`, (label) text `T`, and style `S`.
 pub struct Block<C, T, S> {
@@ -401,11 +453,6 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
     }
 }
 
-/// Line that precedes a block.
-pub struct Prologue(usize);
-/// Line that succeeds a block.
-pub struct Epilogue(usize);
-
 impl<C, T, S> Block<C, T, S> {
     /// Apply function to code.
     #[must_use]
@@ -428,36 +475,25 @@ impl<C, T, S> Block<C, T, S> {
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
 
-    /// Return the line that precedes the block.
+    /// Line that precedes the block.
     #[must_use]
-    pub fn prologue(&self) -> Prologue {
-        Prologue(self.line_no_width())
+    pub fn prologue(&self) -> impl Display {
+        let space = space(self.line_no_width());
+        from_fn(move |f| write!(f, "{space} {}{}", Snake::UpRight, Snake::Horizontal))
     }
 
-    /// Return the line that succeeds the block.
+    /// Line number space followed by a vertical snake.
+    ///
+    /// This is useful after the prologue, to make things less cramped.
     #[must_use]
-    pub fn epilogue(&self) -> Epilogue {
-        Epilogue(self.line_no_width())
+    pub fn space_vert(&self) -> impl Display {
+        self.line_no_space_then(Snake::Vertical)
     }
-}
 
-impl Display for Prologue {
-    /// " ... ╭─"
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {}{}",
-            " ".repeat(self.0),
-            Snake::UpRight,
-            Snake::Horizontal
-        )
-    }
-}
-
-impl Display for Epilogue {
-    /// "─...─╯"
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", Snake::line_up(self.0 + 1))
+    /// Line that succeeds the block, i.e. "─...─╯".
+    #[must_use]
+    pub fn epilogue(&self) -> impl Display {
+        Snake::line_up(self.line_no_width() + 1)
     }
 }
 
@@ -471,134 +507,128 @@ impl<C, T, S> Block<C, T, S> {
     }
 
     /// " ...  ┆"
-    fn dots(&self, f: &mut Formatter) -> fmt::Result {
-        self.line_no_space_then(Snake::VerticalDots, f)
+    fn dots(&self) -> impl Display {
+        self.line_no_space_then(Snake::VerticalDots)
     }
 
     /// " ...  ?"
-    fn line_no_space_then(&self, snake: Snake, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{} {}", " ".repeat(self.line_no_width()), snake)
+    fn line_no_space_then(&self, snake: Snake) -> impl Display {
+        let space = space(self.line_no_width());
+        from_fn(move |f| write!(f, "{space} {snake}"))
     }
 
-    fn incoming_space(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", if self.some_incoming() { "  " } else { "" })
+    fn incoming_space(&self) -> &'static str {
+        self.some_incoming().then_some("  ").unwrap_or("")
     }
 
     /// Write line number right-aligned.
-    fn line_no(&self, no: usize, f: &mut Formatter) -> fmt::Result {
+    fn line_no(&self, no: usize) -> impl Display {
         let width = self.line_no_width();
-        write!(f, "{:width$} │", no + 1)
+        from_fn(move |f| write!(f, "{:>width$} │", no + 1))
     }
+
+    fn styled<'a>(&'a self, style: &'a S, x: &'a dyn Display) -> impl Display + 'a {
+        from_fn(move |f| (self.paint)(f, style, x))
+    }
+}
+
+fn space(width: usize) -> impl Display {
+    from_fn(move |f| write!(f, "{:width$}", ""))
+}
+
+macro_rules! width {
+    ($slice:expr) => {
+        $slice.iter().map(|(code, ..)| code.width).sum::<usize>()
+    };
 }
 
 impl<C: Display, T: Display, S> Display for Block<CodeWidth<C>, T, S> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.line_no_space_then(Snake::Vertical, f)?;
-        writeln!(f)?;
-
+        let paint = self.paint;
         let mut incoming_style: Option<&S> = None;
 
         for line in &self.lines {
             let Line { no: line_no, parts } = if let Some(line) = line {
                 line
             } else {
-                self.dots(f)?;
-                writeln!(f)?;
+                writeln!(f, "{}", self.dots())?;
                 continue;
             };
 
-            self.line_no(*line_no, f)?;
+            self.line_no(*line_no).fmt(f)?;
             if let Some(style) = incoming_style {
-                write!(f, " ")?;
-                (self.paint)(f, style, Snake::Vertical.as_str())?;
+                write!(f, " {}", self.styled(style, &Snake::Vertical))?;
             } else {
-                self.incoming_space(f)?;
+                self.incoming_space().fmt(f)?;
             }
 
             write!(f, " ")?;
             for (code, style) in parts.code_parts() {
-                (self.paint)(f, style, &code.to_string())?;
+                self.styled(style, code).fmt(f)?;
             }
             writeln!(f)?;
 
             // print the line just below the code, e.g.
             // " ...  ┆ │ ... ─┬─ ... ─┬─ ... ▲"
             if parts.arrows_below() {
-                self.dots(f)?;
-                write!(f, " ")?;
+                write!(f, "{} ", self.dots())?;
                 if let Some(style) = incoming_style {
-                    (self.paint)(f, style, Snake::Vertical.as_str())?;
-                    parts.fmt_incoming(self.paint, style, Snake::ArrowUp, f)?;
+                    self.styled(style, &Snake::Vertical).fmt(f)?;
+                    parts.incoming(self.styled(style, &Snake::ArrowUp)).fmt(f)?;
                 } else {
-                    self.incoming_space(f)?;
+                    self.incoming_space().fmt(f)?;
                 }
-                parts.fmt_arrows(self.paint, f)?;
-                writeln!(f)?;
+                writeln!(f, "{}", parts.arrows(paint))?;
             }
 
             if let Some((code, text, style)) = &parts.incoming {
                 assert!(incoming_style.take().is_some());
 
-                self.dots(f)?;
-                write!(f, " ")?;
-                (self.paint)(f, style, Snake::Vertical.as_str())?;
-                parts.fmt_incoming(self.paint, style, Snake::Vertical, f)?;
-                parts.fmt_inside_vert(self.paint, 0, f)?;
-                writeln!(f)?;
+                write!(f, "{} ", self.dots())?;
+                let snake = self.styled(style, &Snake::Vertical);
+                snake.fmt(f)?;
+                parts.incoming(snake).fmt(f)?;
+                writeln!(f, "{}", parts.inside_vert(paint, 0))?;
 
-                self.dots(f)?;
-                write!(f, " ")?;
+                write!(f, "{} ", self.dots())?;
                 if let Some(text) = text {
                     let snake =
                         Snake::down_line_up_line(code.width, parts.width() + 1 - code.width);
-                    (self.paint)(f, style, &snake)?;
-                    write!(f, " {text}")?;
+                    let snake = self.styled(style, &snake);
+                    write!(f, "{snake} {text}")?;
                 } else {
                     let snake = Snake::down_line_up(code.width);
-                    (self.paint)(f, style, &snake)?;
-                    parts.fmt_inside_vert(self.paint, 0, f)?;
+                    let snake = self.styled(style, &snake);
+                    write!(f, "{snake}{}", parts.inside_vert(paint, 0))?;
                 }
                 writeln!(f)?;
             }
 
-            let incoming_width = width2(&parts.incoming);
+            let incoming_width = width!(parts.incoming);
             let mut before = 0;
-            let prefix = |f: &mut _| {
-                self.dots(f)?;
-                self.incoming_space(f)?;
-                write!(f, " ")?;
-                " ".repeat(incoming_width).fmt(f)?;
-                Ok(())
-            };
+            let prefix = from_fn(|f| {
+                let space = space(incoming_width);
+                write!(f, "{}{} {}", self.dots(), self.incoming_space(), space)
+            });
             for (i, (code, label, style)) in parts.inside.iter().enumerate() {
                 if let LabelKind::Text(text) = label {
-                    prefix(f)?;
                     // "... │ ... │"
-                    parts.fmt_inside_vert(self.paint, i, f)?;
-                    writeln!(f)?;
-
-                    prefix(f)?;
+                    writeln!(f, "{prefix}{}", parts.inside_vert(paint, i))?;
 
                     // "╰─...─ {text}"
                     let (left, right) = code.left_right();
-                    let after =
-                        width2(&parts.inside) - before - code.width + width(&parts.outgoing);
+                    let after = width!(parts.inside) - before - code.width + width!(parts.outgoing);
+                    let space = space(before + left);
                     let snake = Snake::down_line(right + after + 1);
-                    write!(f, "{}", " ".repeat(before + left))?;
-                    (self.paint)(f, style, &snake)?;
-                    write!(f, " {text}")?;
-                    writeln!(f)?;
+                    writeln!(f, "{prefix}{space}{} {text}", self.styled(style, &snake))?;
                 }
                 before += code.width;
             }
 
             // " ...  ┆ ╭─...─╯"
             if let Some((_, style)) = &parts.outgoing {
-                self.dots(f)?;
-                write!(f, " ")?;
-                let snake = Snake::up_line_up(incoming_width + width2(&parts.inside) + 1);
-                (self.paint)(f, style, &snake)?;
-                writeln!(f)?;
+                let snake = Snake::up_line_up(incoming_width + width!(parts.inside) + 1);
+                writeln!(f, "{} {}", self.dots(), self.styled(style, &snake))?;
 
                 incoming_style = Some(style);
             }
@@ -654,84 +684,62 @@ impl<C, T, S> LineParts<C, T, S> {
     }
 }
 
-fn width<'a, C: 'a, T: 'a>(i: impl IntoIterator<Item = &'a (CodeWidth<C>, T)>) -> usize {
-    i.into_iter().map(|(code, _)| code.width).sum()
-}
-
-fn width2<'a, C: 'a, T: 'a, S: 'a>(i: impl IntoIterator<Item = &'a (CodeWidth<C>, T, S)>) -> usize {
-    i.into_iter().map(|(code, ..)| code.width).sum()
-}
-
 impl<C, T, S> LineParts<CodeWidth<C>, T, S> {
     /// Position of the end of the rightmost label.
     fn width(&self) -> usize {
-        width2(&self.inside) + width2(&self.incoming) + width(&self.outgoing)
+        width!(self.inside) + width!(self.incoming) + width!(self.outgoing)
     }
 
-    fn fmt_incoming(
-        &self,
-        paint: Paint<S>,
-        style: &S,
-        snake: Snake,
-        f: &mut Formatter,
-    ) -> fmt::Result {
-        if let Some((code, _text, _style)) = &self.incoming {
-            write!(f, "{}", " ".repeat(code.width))?;
-            paint(f, style, snake.as_str())?;
-        }
-        Ok(())
+    fn incoming<'a>(&'a self, snake: impl Display + 'a) -> impl Display + 'a {
+        from_fn(move |f| {
+            if let Some((code, _text, _style)) = &self.incoming {
+                write!(f, "{}{snake}", space(code.width))?;
+            }
+            Ok(())
+        })
     }
 
-    fn fmt_inside<S1, S2>(
-        &self,
+    fn inside<'a, S1: Display + 'a, S2: Display + 'a>(
+        &'a self,
         paint: Paint<S>,
         from: usize,
-        s1: S1,
-        s2: S2,
-        f: &mut Formatter,
-    ) -> fmt::Result
-    where
         // display line for label without text
-        S1: Fn(usize) -> String,
+        s1: fn(usize) -> S1,
         // display line for label with text
-        S2: Fn(usize, usize) -> String,
-    {
-        let before = width2(&self.inside[..from]);
-        write!(f, "{}", " ".repeat(before))?;
-
-        for (code, label, style) in &self.inside[from..] {
-            match label {
-                LabelKind::Text(_text) => {
-                    let (left, right) = code.left_right();
-                    paint(f, style, &s2(left, right))?;
-                }
-                LabelKind::Snake => paint(f, style, &s1(code.width))?,
-                LabelKind::None => paint(f, style, &" ".repeat(code.width))?,
-            }
-        }
-        Ok(())
+        s2: fn(usize, usize) -> S2,
+    ) -> impl Display + 'a {
+        from_fn(move |f| {
+            space(width!(self.inside[..from])).fmt(f)?;
+            self.inside[from..]
+                .iter()
+                .try_for_each(|(code, label, style)| paint(f, style, &label.snake(code, s1, s2)))
+        })
     }
 
     /// Print something like "... ─┬─ ... ─┬─ ... ▲".
-    fn fmt_arrows(&self, paint: Paint<S>, f: &mut Formatter) -> fmt::Result {
-        self.fmt_inside(paint, 0, Snake::line, Snake::line_down_line, f)?;
+    fn arrows(&self, paint: Paint<S>) -> impl Display + '_ {
+        from_fn(move |f| {
+            self.inside(paint, 0, Snake::line, Snake::line_down_line)
+                .fmt(f)?;
 
-        if let Some((_code, style)) = &self.outgoing {
-            paint(f, style, Snake::ArrowUp.as_str())?;
-        }
-        Ok(())
+            if let Some((_code, style)) = &self.outgoing {
+                paint(f, style, &Snake::ArrowUp)?;
+            }
+            Ok(())
+        })
     }
 
     /// Print something like "... │ ...  │"
-    fn fmt_inside_vert(&self, paint: Paint<S>, from: usize, f: &mut Formatter) -> fmt::Result {
-        let s1 = |w| " ".repeat(w);
-        let s2 = |l, r| format!("{}{}{}", " ".repeat(l), Snake::Vertical, " ".repeat(r));
-        self.fmt_inside(paint, from, s1, s2, f)?;
+    fn inside_vert(&self, paint: Paint<S>, from: usize) -> impl Display + '_ {
+        let s2 = |l, r| from_fn(move |f| write!(f, "{}{}{}", space(l), Snake::Vertical, space(r)));
+        from_fn(move |f| {
+            self.inside(paint, from, space, s2).fmt(f)?;
 
-        if let Some((_code, style)) = &self.outgoing {
-            paint(f, style, Snake::Vertical.as_str())?;
-        }
-        Ok(())
+            if let Some((_code, style)) = &self.outgoing {
+                paint(f, style, &Snake::Vertical)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -760,44 +768,42 @@ enum Snake {
 
 impl Snake {
     /// ─...─
-    fn line(len: usize) -> String {
-        "─".repeat(len)
+    fn line(len: usize) -> impl Display {
+        from_fn(move |f| write!(f, "{:─>len$}", ""))
     }
 
     /// ╰─...─
-    fn down_line(len: usize) -> String {
-        format!("{}{}", Snake::DownRight, Snake::line(len))
+    fn down_line(len: usize) -> impl Display {
+        from_fn(move |f| write!(f, "{}{}", Snake::DownRight, Snake::line(len)))
     }
 
     /// ╰─...─┴─...─
-    fn down_line_up_line(l: usize, r: usize) -> String {
-        format!(
-            "{}{}{}{}",
-            Self::DownRight,
-            Self::line(l),
-            Self::HorizontalUp,
-            Self::line(r)
-        )
+    fn down_line_up_line(l: usize, r: usize) -> impl Display {
+        let l = Self::line(l);
+        let r = Self::line(r);
+        from_fn(move |f| write!(f, "{}{l}{}{r}", Self::DownRight, Self::HorizontalUp,))
     }
 
     /// "╰─...─╯"
-    fn down_line_up(len: usize) -> String {
-        format!("{}{}{}", Self::DownRight, Self::line(len), Self::RightUp)
+    fn down_line_up(len: usize) -> impl Display {
+        from_fn(move |f| write!(f, "{}{}{}", Self::DownRight, Self::line(len), Self::RightUp))
     }
 
     /// "╭─...─╯"
-    fn up_line_up(len: usize) -> String {
-        format!("{}{}{}", Self::UpRight, Self::line(len), Self::RightUp)
+    fn up_line_up(len: usize) -> impl Display {
+        from_fn(move |f| write!(f, "{}{}{}", Self::UpRight, Self::line(len), Self::RightUp))
     }
 
     /// "─...─╯"
-    fn line_up(len: usize) -> String {
-        format!("{}{}", Self::line(len), Self::RightUp)
+    fn line_up(len: usize) -> impl Display {
+        from_fn(move |f| write!(f, "{}{}", Self::line(len), Self::RightUp))
     }
 
     /// ─...─┬─...─
-    fn line_down_line(l: usize, r: usize) -> String {
-        format!("{}{}{}", Self::line(l), Self::HorizontalDown, Self::line(r))
+    fn line_down_line(l: usize, r: usize) -> impl Display {
+        let l = Self::line(l);
+        let r = Self::line(r);
+        from_fn(move |f| write!(f, "{l}{}{r}", Self::HorizontalDown,))
     }
 
     fn as_str(self) -> &'static str {
