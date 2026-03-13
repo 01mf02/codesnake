@@ -297,10 +297,7 @@ fn from_fn<F: Fn(&mut Formatter) -> fmt::Result>(f: F) -> FromFn<F> {
     FromFn(f)
 }
 
-impl<F> Display for FromFn<F>
-where
-    F: Fn(&mut Formatter) -> fmt::Result,
-{
+impl<F: Fn(&mut Formatter) -> fmt::Result> Display for FromFn<F> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         (self.0)(f)
     }
@@ -518,7 +515,11 @@ impl<C, T, S> Block<C, T, S> {
     }
 
     fn incoming_space(&self) -> &'static str {
-        self.some_incoming().then_some("  ").unwrap_or("")
+        if self.some_incoming() {
+            "  "
+        } else {
+            ""
+        }
     }
 
     /// Write line number right-aligned.

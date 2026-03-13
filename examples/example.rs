@@ -18,7 +18,6 @@ fn paint_ansi(f: &mut Formatter, color: &Color, s: &dyn Display) -> fmt::Result 
     s.fg(*color).fmt(f)
 }
 
-
 fn main() {
     /* to find the byte positions in this example:
     for ci in SRC.char_indices() {
@@ -49,52 +48,21 @@ fn main() {
         CodeWidth::new(s, core::cmp::max(w, 1))
     });
 
-    println!(
-        "{}{}",
-        block.prologue(),
-        fmt_for_older_rust::from_fn(|f| paint(f, &Color::Red, &"[fac.lisp]"))
-        //>= 1.93 fmt::from_fn(|f| paint(f, &Color::Red, &"[fac.lisp]"))
-    );
+    let filename = from_fn(|f| paint(f, &Color::Red, &"[fac.lisp]"));
+    println!("{}{filename}", block.prologue());
     print!("{block}");
     println!("{}", block.epilogue());
 }
 
-
-// stablilized in rust 1.93
-// Starting 1.93, just use fmt::from_fn instead of fmt_for_older_rust:from_fn
-mod fmt_for_older_rust {
-    use core::fmt;
-
-    /// Creates a value that implements [`fmt::Debug`] and [`fmt::Display`] via the provided closure.
-    ///
-    /// This is a backport of the stabilized `fmt::from_fn` function, which is available in Rust
-    /// 1.93 and later.
-    #[must_use = "returns a type implementing Debug and Display, which do not have any effects unless they are used"]
-    pub fn from_fn<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result>(f: F) -> FromFn<F> {
-        FromFn(f)
-    }
-
-    /// Implements [`fmt::Debug`] and [`fmt::Display`] via the provided closure.
-    ///
-    /// Created with [`from_fn`].
-    pub struct FromFn<F>(F);
-
-    impl<F> fmt::Debug for FromFn<F>
-    where
-        F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result,
-    {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            (self.0)(f)
-        }
-    }
-
-    impl<F> fmt::Display for FromFn<F>
-    where
-        F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result,
-    {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            (self.0)(f)
-        }
-    }
+// available starting from Rust 1.93 as [`core::fmt::from_fn`]
+fn from_fn<F: Fn(&mut Formatter) -> fmt::Result>(f: F) -> FromFn<F> {
+    FromFn(f)
 }
 
+struct FromFn<F>(F);
+
+impl<F: Fn(&mut Formatter) -> fmt::Result> Display for FromFn<F> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        (self.0)(f)
+    }
+}
