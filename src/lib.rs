@@ -90,7 +90,7 @@
 //! # Colors
 //!
 //! To color the output on a terminal, you can use a crate like [`yansi`](https://docs.rs/yansi).
-//! This allows you to color the snakes of a label as follows:
+//! This allows you to color labels as follows:
 //!
 //! ~~~
 //! use codesnake::{Block, CodeWidth, Label, LineIndex};
@@ -472,14 +472,14 @@ impl<C, T, S> Block<C, T, S> {
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
 
-    /// Line that precedes the block.
+    /// Line that precedes the block, i.e. " ... ╭─".
     #[must_use]
     pub fn prologue(&self) -> impl Display {
         let space = space(self.line_no_width());
         from_fn(move |f| write!(f, "{space} {}{}", Snake::UpRight, Snake::Horizontal))
     }
 
-    /// Line number space followed by a vertical snake.
+    /// Line number space followed by a vertical snake, i.e. " ... |".
     ///
     /// This is useful after the prologue, to make things less cramped.
     #[must_use]
