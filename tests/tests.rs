@@ -30,6 +30,30 @@ fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str, bool>; 
     )
 }
 
+fn format_with_context<const N: usize>(
+    code: &str,
+    labels: [Label<Range<usize>, &str, bool>; N],
+    context: Range<usize>,
+) -> String {
+    let idx = LineIndex::new(code);
+
+    let mut prev_empty = false;
+    let labels = codesnake::add_context_labels(&idx, labels, context).unwrap();
+    let block = Block::new(&idx, labels).unwrap();
+    let block = block.with_paint(paint).map_code(|s| {
+        let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
+        let s = s.replace('\t', "    ");
+        let w = unicode_width::UnicodeWidthStr::width(&*s);
+        CodeWidth::new(s, core::cmp::max(w, 1) - sub)
+    });
+    format!(
+        "\n{}\n{}\n{block}{}\n",
+        block.prologue(),
+        block.space_vert(),
+        block.epilogue()
+    )
+}
+
 fn main() {
     // to find the byte positions in this example
     for ci in SRC.char_indices() {
@@ -495,6 +519,66 @@ fn s1bn1() {
   ┆     ─  
   ┆
 4 │ this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn context_wt() {
+    let should = format_with_context(SRC, [Label::new(70..70).with_text("!")], 4..69);
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ foo bar
+2 │ baz toto
+3 │ look, a fish 🐟 and a hook 🪝
+4 │ this is getting silly
+  ┆                    ┬ 
+  ┆                    │ 
+  ┆                    ╰── !
+──╯
+"
+    );
+}
+
+#[test]
+fn context_m() {
+    let should = format_with_context(SRC, [Label::new(4..4).with_snake()], 0..15);
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆     ─  
+2 │ baz toto
+──╯
+"
+    );
+}
+
+#[test]
+fn context_wt_context() {
+    let should = format_with_context(SRC, [Label::new(15..25).with_text("hello")], 10..72);
+    println!("{should}");
+    assert_eq!(
+        should,
+        "
+  ╭─
+  │
+2 │   baz toto
+  ┆          ▲
+  ┆ ╭────────╯
+3 │ │ look, a fish 🐟 and a hook 🪝
+  ┆ │        ▲                     
+  ┆ │        │                     
+  ┆ ╰────────┴────────────────────── hello
+4 │   this is getting silly
 ──╯
 "
     );

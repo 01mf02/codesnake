@@ -840,3 +840,65 @@ impl Display for Snake {
         self.as_str().fmt(f)
     }
 }
+
+/// Given a sequence of labels (and a LineIndex),
+/// find all input lines that are touched by the labels.
+/// Then add unmarked labels (= output unannoteted lines) for all lines
+/// that are within  the context range, but don't have any label.
+///
+/// The label ranges `r` must fulfill the same conditions as for `[Block::new()]`
+/// The `context` range must be within the byte range covered by `idx`
+
+pub fn add_context_labels<I, T, S>(
+    idx: &LineIndex,
+    labels: I,
+    context: Range<usize>,
+) -> Option<Vec<Label<Range<usize>, T, S>>>
+where
+    I: IntoIterator<Item = Label<Range<usize>, T, S>>,
+    S: Default,
+{
+    let mut labels: Vec<_> = labels.into_iter().collect();
+    let mut prev_range: Option<Range<_>> = None;
+    // verify labels are sorted and non-overlapping
+    for Label { kind, code, style } in &labels {
+        if code.start > code.end {
+            return None;
+        }
+        if let Some(prev) = prev_range.replace(code.clone()) {
+            if code.start <= prev.start || code.start < prev.end {
+                return None;
+            }
+        }
+    }
+    labels.reverse();
+
+    let mut out_labels = Vec::new();
+    let start_line = idx.get(context.start)?.line_no;
+    let end_line = idx.get(context.end)?.line_no;
+    for line_no in start_line..end_line + 1 {
+        // push existing labels before this line.
+        while let Some(last_label) = labels.iter().last() {
+            let label_end_line_no = idx.get(last_label.code.end)?.line_no;
+            if label_end_line_no < line_no {
+                out_labels.push(labels.pop().unwrap());
+            } else {
+                break;
+            }
+        }
+        // is there a label on this line?
+        if let Some(last_label) = labels.iter().last() {
+            let label_start_line_no = idx.get(last_label.code.start)?.line_no;
+            let label_end_line_no = idx.get(last_label.code.end)?.line_no;
+            if label_start_line_no <= line_no && line_no <= label_end_line_no {
+                continue;
+            }
+        }
+        // no? push an unlabeled Label
+        out_labels.push(Label::new(
+            idx.0[line_no].0..idx.0[line_no].0 + idx.0[line_no].1.len(),
+        ));
+    }
+    out_labels.extend(labels.into_iter().rev());
+    Some(out_labels)
+}
