@@ -11,5 +11,6 @@ keywords = ["error", "diagnostics", "report", "compiler", "programming-language"
 categories = ["command-line-utilities", "compilers", "value-formatting"]
 
 [dev-dependencies]
+pretty_assertions = "1.4.1"
 unicode-width = "0.1.13"
 yansi = "1.0.1"

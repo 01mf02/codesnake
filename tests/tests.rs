@@ -1,17 +1,33 @@
 use codesnake::{Block, CodeWidth, Label, LineIndex};
+use core::fmt::{self, Display, Formatter};
 use core::ops::Range;
+use pretty_assertions::assert_eq;
 
-fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str>; N]) -> String {
+fn paint(f: &mut Formatter, style: &bool, s: &dyn Display) -> fmt::Result {
+    if *style {
+        write!(f, "<span>{s}</span>")
+    } else {
+        write!(f, "{s}")
+    }
+}
+
+fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str, bool>; N]) -> String {
     let idx = LineIndex::new(code);
 
     let mut prev_empty = false;
-    let block = Block::new(&idx, labels).unwrap().map_code(|s| {
+    let block = Block::new(&idx, labels).unwrap();
+    let block = block.with_paint(paint).map_code(|s| {
         let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
         CodeWidth::new(s, core::cmp::max(w, 1) - sub)
     });
-    format!("\n{}\n{block}{}\n", block.prologue(), block.epilogue())
+    format!(
+        "\n{}\n{}\n{block}{}\n",
+        block.prologue(),
+        block.space_vert(),
+        block.epilogue()
+    )
 }
 
 fn main() {
@@ -26,15 +42,17 @@ const SRC: &str = "foo bar\nbaz toto\nlook, a fish 🐟 and a hook 🪝\nthis is
 
 // nomenclature:
 //
-// * s: single-line
-// * m: multi-line
 // * t: text
-// * n: no text
+// * s: snake
+// * n: none
+// * b: break (omitted lines)
+//
+// followed by a number that indicates how many lines a label spans
 
 #[test]
-fn sn() {
+fn s1() {
     assert_eq!(
-        format(SRC, [Label::new(4..7)]),
+        format(SRC, [Label::new(4..7).with_snake()]),
         "
   ╭─
   │
@@ -46,9 +64,12 @@ fn sn() {
 }
 
 #[test]
-fn snsn() {
+fn s1s1() {
     assert_eq!(
-        format(SRC, [Label::new(0..3), Label::new(4..7)]),
+        format(
+            SRC,
+            [Label::new(0..3).with_snake(), Label::new(4..7).with_snake()]
+        ),
         "
   ╭─
   │
@@ -60,9 +81,15 @@ fn snsn() {
 }
 
 #[test]
-fn snmn() {
+fn s1s2() {
     assert_eq!(
-        format(SRC, [Label::new(0..3), Label::new(4..11)]),
+        format(
+            SRC,
+            [
+                Label::new(0..3).with_snake(),
+                Label::new(4..11).with_snake()
+            ]
+        ),
         "
   ╭─
   │
@@ -79,7 +106,7 @@ fn snmn() {
 }
 
 #[test]
-fn stmtst() {
+fn t1t2t1() {
     assert_eq!(
         format(
             SRC,
@@ -109,9 +136,9 @@ fn stmtst() {
 }
 
 #[test]
-fn mmn() {
+fn s3() {
     assert_eq!(
-        format(SRC, [Label::new(4..21)]),
+        format(SRC, [Label::new(4..21).with_snake()]),
         "
   ╭─
   │
@@ -119,7 +146,6 @@ fn mmn() {
   ┆       ▲
   ┆ ╭─────╯
 2 │ │ baz toto
-  ┆ │        
 3 │ │ look, a fish 🐟 and a hook 🪝
   ┆ │    ▲                         
   ┆ │    │                         
@@ -130,7 +156,35 @@ fn mmn() {
 }
 
 #[test]
-fn stst() {
+fn s3s1() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..21).with_snake(),
+                Label::new(25..34).with_text("thanks for all the ...")
+            ]
+        ),
+        "
+  ╭─
+  │
+1 │   foo bar
+  ┆       ▲
+  ┆ ╭─────╯
+2 │ │ baz toto
+3 │ │ look, a fish 🐟 and a hook 🪝
+  ┆ │    ▲    ───┬───              
+  ┆ │    │       │                 
+  ┆ ╰────╯       │                 
+  ┆              │                 
+  ┆              ╰────────────────── thanks for all the ...
+──╯
+"
+    );
+}
+
+#[test]
+fn t1t1() {
     let labels = [
         Label::new(25..34).with_text("animal"),
         Label::new(41..50).with_text("object"),
@@ -150,7 +204,7 @@ fn stst() {
 }
 
 #[test]
-fn mtmt() {
+fn t2t2() {
     assert_eq!(
         format(
             SRC,
@@ -182,7 +236,10 @@ fn mtmt() {
 #[test]
 fn empty() {
     assert_eq!(
-        format(SRC, [Label::new(2..2), Label::new(4..7)]),
+        format(
+            SRC,
+            [Label::new(2..2).with_snake(), Label::new(4..7).with_snake()]
+        ),
         "
   ╭─
   │
@@ -196,7 +253,10 @@ fn empty() {
 #[test]
 fn adjacent() {
     assert_eq!(
-        format(SRC, [Label::new(0..3), Label::new(3..7)]),
+        format(
+            SRC,
+            [Label::new(0..3).with_snake(), Label::new(3..7).with_snake()]
+        ),
         "
   ╭─
   │
@@ -206,7 +266,6 @@ fn adjacent() {
 "
     );
 }
-
 
 #[test]
 fn the_end() {
@@ -219,6 +278,223 @@ fn the_end() {
   ┆                      ┬
   ┆                      │
   ┆                      ╰─ the end
+──╯
+"
+    );
+}
+
+#[test]
+fn n1() {
+    assert_eq!(
+        format(SRC, [Label::new(25..34)]),
+        "
+  ╭─
+  │
+3 │ look, a fish 🐟 and a hook 🪝
+──╯
+"
+    );
+}
+
+#[test]
+fn n1t1() {
+    assert_eq!(
+        format(
+            SRC,
+            [Label::new(24..24), Label::new(25..25).with_text("hello")]
+        ),
+        "
+  ╭─
+  │
+3 │ look, a fish 🐟 and a hook 🪝
+  ┆         ┬                    
+  ┆         │                    
+  ┆         ╰───────────────────── hello
+──╯
+"
+    );
+}
+
+#[test]
+fn t2t2n1() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..11).with_text("ba?"),
+                Label::new(12..21).with_text("four-letter words"),
+                Label::new(72..72),
+            ]
+        ),
+        "
+  ╭─
+  │
+1 │   foo bar
+  ┆       ▲
+  ┆ ╭─────╯
+2 │ │ baz toto
+  ┆ │   ▲ ▲
+  ┆ │   │ │
+  ┆ ╰───┴────── ba?
+  ┆ ╭─────╯
+3 │ │ look, a fish 🐟 and a hook 🪝
+  ┆ │    ▲                         
+  ┆ │    │                         
+  ┆ ╰────┴────────────────────────── four-letter words
+4 │   this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn n1t2n1() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..11),
+                Label::new(12..21).with_text("four-letter words"),
+                Label::new(72..72),
+            ]
+        ),
+        "
+  ╭─
+  │
+1 │   foo bar
+2 │   baz toto
+  ┆       ▲
+  ┆ ╭─────╯
+3 │ │ look, a fish 🐟 and a hook 🪝
+  ┆ │    ▲                         
+  ┆ │    │                         
+  ┆ ╰────┴────────────────────────── four-letter words
+4 │   this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn n4() {
+    assert_eq!(
+        format(SRC, [Label::new(0..72)]),
+        "
+  ╭─
+  │
+1 │ foo bar
+2 │ baz toto
+3 │ look, a fish 🐟 and a hook 🪝
+4 │ this is getting silly
+──╯
+"
+    );
+}
+
+#[test]
+fn n4_style() {
+    assert_eq!(
+        format(SRC, [Label::new(0..72).with_style(true)]),
+        "
+  ╭─
+  │
+1 │ <span>foo bar</span>
+2 │ <span>baz toto</span>
+3 │ <span>look, a fish 🐟 and a hook 🪝</span>
+4 │ <span>this is getting silly</span>
+──╯
+"
+    );
+}
+
+#[test]
+fn n1bt1n1() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..4),
+                Label::new(25..25).with_text("hello"),
+                Label::new(70..70),
+            ],
+        ),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆
+3 │ look, a fish 🐟 and a hook 🪝
+  ┆         ┬                    
+  ┆         │                    
+  ┆         ╰───────────────────── hello
+4 │ this is getting silly
+──╯
+"
+    );
+}
+#[test]
+fn n1bn1() {
+    assert_eq!(
+        format(SRC, [Label::new(4..4), Label::new(70..70)]),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆
+4 │ this is getting silly
+──╯
+"
+    );
+}
+#[test]
+fn n1bs1() {
+    assert_eq!(
+        format(SRC, [Label::new(4..4), Label::new(70..70).with_snake()]),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆
+4 │ this is getting silly
+  ┆                    ─ 
+──╯
+"
+    );
+}
+
+#[test]
+fn n1bs1_style() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(0..3).with_style(true),
+                Label::new(70..70).with_snake(),
+            ],
+        ),
+        "
+  ╭─
+  │
+1 │ <span>foo</span> bar
+  ┆
+4 │ this is getting silly
+  ┆                    ─ 
+──╯
+"
+    );
+}
+
+#[test]
+fn s1bn1() {
+    assert_eq!(
+        format(SRC, [Label::new(4..4).with_snake(), Label::new(70..70)],),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆     ─  
+  ┆
+4 │ this is getting silly
 ──╯
 "
     );

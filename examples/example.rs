@@ -2,20 +2,24 @@
 //
 //     cargo run --example example | ansisvg --colorscheme "Builtin Solarized Dark" --fontname "Source Code Pro" --fontsize 18 > example.svg
 use codesnake::{Block, CodeWidth, Label, LineIndex};
-use core::fmt::Display;
+use core::fmt::{self, Display, Formatter};
 use yansi::{Color, Paint};
 
 const SRC: &str = r#"(defun factorial (n) (if (zerop n) 1
         (* n (factorial (1- n)))))"#;
 
-fn style(html: bool, d: &impl Display, color: Color) -> String {
-    if html {
+fn paint_html(f: &mut Formatter, color: &Color, s: &dyn Display) -> fmt::Result {
+    if *color == Color::default() {
+        write!(f, "{s}")
+    } else {
         let mut color = format!("{color:?}");
         color.make_ascii_lowercase();
-        format!("<span class={color}>{d}</span>",)
-    } else {
-        d.fg(color).to_string()
+        write!(f, "<span class={color}>{s}</span>")
     }
+}
+
+fn paint_ansi(f: &mut Formatter, color: &Color, s: &dyn Display) -> fmt::Result {
+    s.fg(*color).fmt(f)
 }
 
 fn main() {
@@ -27,30 +31,43 @@ fn main() {
 
     let html = std::env::args().skip(1).any(|arg| arg == "--html");
     let idx = LineIndex::new(SRC);
-    let color = |color| move |s| style(html, &s, color);
+    let paint = if html { paint_html } else { paint_ansi };
 
     let labels = [
-        Label::new(1..6).with_style(color(Color::Red)),
+        Label::new(1..6).with_style(Color::Red),
         Label::new(7..16)
             .with_text("this function ...")
-            .with_style(color(Color::Green)),
+            .with_style(Color::Green),
         Label::new(21..70)
             .with_text("... is defined by this")
-            .with_style(color(Color::Blue)),
+            .with_style(Color::Blue),
         Label::new(71..71)
             .with_text("(and here is EOF)")
-            .with_style(color(Color::Yellow)),
+            .with_style(Color::Yellow),
     ];
-    let block = Block::new(&idx, labels).unwrap().map_code(|s| {
+    let block = Block::new(&idx, labels).unwrap();
+    let block = block.with_paint(paint).map_code(|s| {
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
         CodeWidth::new(s, core::cmp::max(w, 1))
     });
-    println!(
-        "{}{}",
-        block.prologue(),
-        style(html, &"[fac.lisp]", Color::Red)
-    );
+
+    let filename = from_fn(|f| paint(f, &Color::Red, &"[fac.lisp]"));
+    println!("{}{filename}", block.prologue());
+    println!("{}", block.space_vert());
     print!("{block}");
     println!("{}", block.epilogue());
+}
+
+// available starting from Rust 1.93 as [`core::fmt::from_fn`]
+fn from_fn<F: Fn(&mut Formatter) -> fmt::Result>(f: F) -> FromFn<F> {
+    FromFn(f)
+}
+
+struct FromFn<F>(F);
+
+impl<F: Fn(&mut Formatter) -> fmt::Result> Display for FromFn<F> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        (self.0)(f)
+    }
 }
