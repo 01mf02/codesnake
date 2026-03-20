@@ -1,7 +1,7 @@
 [package]
 name = "codesnake"
 description = "Pretty printer for non-overlapping code spans"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Michael Färber <michael.faerber@gedenkt.at>"]
 repository = "https://github.com/01mf02/codesnake"
 edition = "2021"
