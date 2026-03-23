@@ -158,7 +158,8 @@ impl<'a> LineIndex<'a> {
         Self(lines.collect())
     }
 
-    fn get(&self, offset: usize) -> Option<IndexEntry<'_>> {
+    /// Given a byte index, get the number of the line it is on (0-based)
+    pub fn get_by_byte(&self, offset: usize) -> Option<IndexEntry<'_>> {
         use core::cmp::Ordering;
         let line_no = self.0.binary_search_by(|(line_start, line)| {
             if *line_start > offset {
@@ -174,16 +175,32 @@ impl<'a> LineIndex<'a> {
         Some(IndexEntry {
             line_no,
             line,
-            bytes: offset - line_start,
+            offset_within_index: line_start,
+            offset_within_line: offset - line_start,
+        })
+    }
+
+    /// Given a (0-based) line number, get the byte index of it's start.
+    pub fn get_by_line_no(&self, line_no: usize) -> Option<IndexEntry<'_>> {
+        self.0.get(line_no).map(|(offset, line)| IndexEntry {
+            line_no,
+            line,
+            offset_within_index: *offset,
+            offset_within_line: 0,
         })
     }
 }
 
-struct IndexEntry<'a> {
-    line: &'a str,
-    line_no: usize,
+/// Information about a single position within a `LineIndex`
+pub struct IndexEntry<'a> {
+    /// Reference to the line's contents
+    pub line: &'a str,
+    /// 0-based line number
+    pub line_no: usize,
+    /// offset of the first byte of the line within the indexed string
+    pub offset_within_index: usize,
     /// offset of position relative to start of line
-    bytes: usize,
+    pub offset_within_line: usize,
 }
 
 /// Functions that determine what to print below labels.
@@ -380,8 +397,8 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                     return None;
                 }
             }
-            let start = idx.get(code.start)?;
-            let end = idx.get(code.end)?;
+            let start = idx.get_by_byte(code.start)?;
+            let end = idx.get_by_byte(code.end)?;
             debug_assert!(start.line_no <= end.line_no);
 
             let mut parts = match lines.pop() {
@@ -402,10 +419,14 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
             };
 
             if start.line_no == end.line_no {
-                parts.inside.push((start.bytes..end.bytes, kind, style));
+                parts.inside.push((
+                    start.offset_within_line..end.offset_within_line,
+                    kind,
+                    style,
+                ));
                 lines.push(Some((start.line_no, start.line, parts)));
             } else {
-                let range = start.bytes..start.line.len();
+                let range = start.offset_within_line..start.line.len();
                 if kind.has_snake() {
                     parts.outgoing = Some((range, style.clone()));
                 } else {
@@ -423,7 +444,7 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                 }
 
                 let mut parts = LineParts::default();
-                let range = 0..end.bytes;
+                let range = 0..end.offset_within_line;
                 if kind.has_snake() {
                     parts.incoming = Some((range, kind.text(), style.clone()));
                 } else {
