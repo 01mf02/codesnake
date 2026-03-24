@@ -307,7 +307,7 @@ enum LabelKind<T> {
 
 /// Sequence of lines, containing code `C`, (label) text `T`, and style `S`.
 pub struct Block<C, T, S> {
-    lines: Vec<Option<Line<C, T, S>>>,
+    lines: Vec<Line<C, T, S>>,
     paint: Paint<S>,
 }
 
@@ -385,17 +385,9 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
             debug_assert!(start.line_no <= end.line_no);
 
             let mut parts = match lines.pop() {
-                Some(Some((line_no, _line, parts))) if line_no == start.line_no => parts,
+                Some((line_no, _line, parts)) if line_no == start.line_no => parts,
                 Some(line) => {
-                    let non_consecutive = line
-                        .as_ref()
-                        .filter(|(no, ..)| start.line_no > no + 1)
-                        .is_some();
-
                     lines.push(line);
-                    if non_consecutive {
-                        lines.push(None);
-                    }
                     LineParts::default()
                 }
                 None => LineParts::default(),
@@ -403,7 +395,7 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
 
             if start.line_no == end.line_no {
                 parts.inside.push((start.bytes..end.bytes, kind, style));
-                lines.push(Some((start.line_no, start.line, parts)));
+                lines.push((start.line_no, start.line, parts));
             } else {
                 let range = start.bytes..start.line.len();
                 if kind.has_snake() {
@@ -411,7 +403,7 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                 } else {
                     parts.inside.push((range, LabelKind::None, style.clone()));
                 }
-                lines.push(Some((start.line_no, start.line, parts)));
+                lines.push((start.line_no, start.line, parts));
 
                 for line_no in start.line_no + 1..end.line_no {
                     let line = idx.0[line_no].1;
@@ -419,7 +411,7 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                         inside: Vec::from([(0..line.len(), LabelKind::None, style.clone())]),
                         ..Default::default()
                     };
-                    lines.push(Some((line_no, line, parts)));
+                    lines.push((line_no, line, parts));
                 }
 
                 let mut parts = LineParts::default();
@@ -429,15 +421,13 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                 } else {
                     parts.inside.push((range, LabelKind::None, style.clone()));
                 }
-                lines.push(Some((end.line_no, end.line, parts)));
+                lines.push((end.line_no, end.line, parts));
             }
         }
 
-        let lines = lines.into_iter().map(|line| {
-            line.map(|(no, line, parts)| Line {
-                no,
-                parts: parts.segment(line),
-            })
+        let lines = lines.into_iter().map(|(no, line, parts)| Line {
+            no,
+            parts: parts.segment(line),
         });
         Some(Block {
             lines: lines.collect(),
@@ -450,20 +440,18 @@ impl<C, T, S> Block<C, T, S> {
     /// Apply function to code.
     #[must_use]
     pub fn map_code<C1>(self, mut f: impl FnMut(C) -> C1) -> Block<C1, T, S> {
-        let f = |line: Option<Line<C, T, S>>| line.map(|line| line.map_code(&mut f));
         Block {
-            lines: self.lines.into_iter().map(f).collect(),
+            lines: self.lines.into_iter().map(|l| l.map_code(&mut f)).collect(),
             paint: self.paint,
         }
     }
 
     fn some_incoming(&self) -> bool {
-        let mut lines = self.lines.iter().flatten();
-        lines.any(|line| line.parts.incoming.is_some())
+        self.lines.iter().any(|line| line.parts.incoming.is_some())
     }
 
     fn line_no_width(&self) -> usize {
-        let max = self.lines.iter().flatten().next_back().unwrap().no + 1;
+        let max = self.lines.last().unwrap().no + 1;
         // number of digits; taken from https://stackoverflow.com/a/69302957
         core::iter::successors(Some(max), |&n| (n >= 10).then_some(n / 10)).count()
     }
@@ -515,6 +503,7 @@ impl<C: Display, T: Display, S> Display for Block<CodeWidth<C>, T, S> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let paint = self.paint;
         let mut incoming_style: Option<&S> = None;
+        let mut prev_line_no = None;
 
         let line_no_width = self.line_no_width();
         let line_no_space = space(line_no_width);
@@ -523,16 +512,14 @@ impl<C: Display, T: Display, S> Display for Block<CodeWidth<C>, T, S> {
 
         let incoming_space = if self.some_incoming() { "  " } else { "" };
 
-        for line in &self.lines {
-            let Line { no: line_no, parts } = if let Some(line) = line {
-                line
-            } else {
+        for line @ Line { parts, .. } in &self.lines {
+            if prev_line_no.filter(|prev| *prev + 1 < line.no).is_some() {
                 writeln!(f, "{dots}")?;
-                continue;
-            };
+            }
+            prev_line_no = Some(line.no);
 
             // write line number right-aligned
-            write!(f, "{:>line_no_width$} │", line_no + 1)?;
+            write!(f, "{:>line_no_width$} │", line.no + 1)?;
 
             if let Some(style) = incoming_style {
                 write!(f, " {}", styled(paint, style, &Snake::Vertical))?;
