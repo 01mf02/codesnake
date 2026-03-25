@@ -62,6 +62,28 @@ fn s1() {
 }
 
 #[test]
+fn s1s1_including_newline() {
+    assert_eq!(
+        format(
+            SRC,
+            [
+                Label::new(4..8).with_snake(),
+                Label::new(12..16).with_snake()
+            ]
+        ),
+        "
+  ╭─
+  │
+1 │ foo bar
+  ┆     ───
+2 │ baz toto
+  ┆     ────
+──╯
+"
+    );
+}
+
+#[test]
 fn s1s1() {
     assert_eq!(
         format(

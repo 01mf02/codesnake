@@ -386,8 +386,14 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                 }
             }
             let start = idx.get(code.start)?;
-            let end = idx.get(code.end)?;
+            let mut end = idx.get(code.end)?;
             debug_assert!(start.line_no <= end.line_no);
+
+            // the end of the range is just at the beginning of a new line,
+            // thus make the label end at the end of the previous line,
+            if end.bytes == 0 && code.start < code.end {
+                end = idx.get(code.end - 1)?;
+            }
 
             let mut parts = match lines.pop() {
                 Some((line_no, _line, parts)) if line_no == start.line_no => parts,
