@@ -14,13 +14,11 @@ fn paint(f: &mut Formatter, style: &bool, s: &dyn Display) -> fmt::Result {
 fn format<const N: usize>(code: &str, labels: [Label<Range<usize>, &str, bool>; N]) -> String {
     let idx = LineIndex::new(code);
 
-    let mut prev_empty = false;
     let block = Block::new(&idx, labels).unwrap();
     let block = block.with_paint(paint).map_code(|s| {
-        let sub = usize::from(core::mem::replace(&mut prev_empty, s.is_empty()));
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
-        CodeWidth::new(s, core::cmp::max(w, 1) - sub)
+        CodeWidth::new(s, core::cmp::max(w, 1))
     });
     format!(
         "\n{}\n{}\n{block}{}\n",
@@ -234,23 +232,6 @@ fn t2t2() {
 }
 
 #[test]
-fn empty() {
-    assert_eq!(
-        format(
-            SRC,
-            [Label::new(2..2).with_snake(), Label::new(4..7).with_snake()]
-        ),
-        "
-  ╭─
-  │
-1 │ foo bar
-  ┆   ─ ───
-──╯
-"
-    );
-}
-
-#[test]
 fn adjacent() {
     assert_eq!(
         format(
@@ -301,7 +282,7 @@ fn n1t1() {
     assert_eq!(
         format(
             SRC,
-            [Label::new(24..24), Label::new(25..25).with_text("hello")]
+            [Label::new(24..25), Label::new(25..26).with_text("hello")]
         ),
         "
   ╭─
@@ -413,9 +394,9 @@ fn n1bt1n1() {
         format(
             SRC,
             [
-                Label::new(4..4),
-                Label::new(25..25).with_text("hello"),
-                Label::new(70..70),
+                Label::new(4..5),
+                Label::new(25..26).with_text("hello"),
+                Label::new(70..71),
             ],
         ),
         "
@@ -435,7 +416,7 @@ fn n1bt1n1() {
 #[test]
 fn n1bn1() {
     assert_eq!(
-        format(SRC, [Label::new(4..4), Label::new(70..70)]),
+        format(SRC, [Label::new(4..5), Label::new(70..71)]),
         "
   ╭─
   │
@@ -449,14 +430,14 @@ fn n1bn1() {
 #[test]
 fn n1bs1() {
     assert_eq!(
-        format(SRC, [Label::new(4..4), Label::new(70..70).with_snake()]),
+        format(SRC, [Label::new(4..5), Label::new(67..72).with_snake()]),
         "
   ╭─
   │
 1 │ foo bar
   ┆
 4 │ this is getting silly
-  ┆                    ─ 
+  ┆                 ─────
 ──╯
 "
     );
@@ -469,7 +450,7 @@ fn n1bs1_style() {
             SRC,
             [
                 Label::new(0..3).with_style(true),
-                Label::new(70..70).with_snake(),
+                Label::new(67..72).with_snake(),
             ],
         ),
         "
@@ -478,7 +459,7 @@ fn n1bs1_style() {
 1 │ <span>foo</span> bar
   ┆
 4 │ this is getting silly
-  ┆                    ─ 
+  ┆                 ─────
 ──╯
 "
     );
@@ -487,7 +468,7 @@ fn n1bs1_style() {
 #[test]
 fn s1bn1() {
     assert_eq!(
-        format(SRC, [Label::new(4..4).with_snake(), Label::new(70..70)],),
+        format(SRC, [Label::new(4..5).with_snake(), Label::new(70..71)],),
         "
   ╭─
   │

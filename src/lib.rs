@@ -256,6 +256,7 @@ impl<C, T, S> Label<C, T, S> {
 }
 
 /// Piece of code together with its display width.
+#[derive(Debug)]
 pub struct CodeWidth<C> {
     code: C,
     width: usize,
@@ -299,6 +300,7 @@ impl<F: Fn(&mut Formatter) -> fmt::Result> Display for FromFn<F> {
     }
 }
 
+#[derive(Debug)]
 enum LabelKind<T> {
     None,
     Snake,
@@ -306,11 +308,13 @@ enum LabelKind<T> {
 }
 
 /// Sequence of lines, containing code `C`, (label) text `T`, and style `S`.
+#[derive(Debug)]
 pub struct Block<C, T, S> {
     lines: Vec<Line<C, T, S>>,
     paint: Paint<S>,
 }
 
+#[derive(Debug)]
 struct Line<C, T, S> {
     no: usize,
     parts: LineParts<C, T, S>,
@@ -326,6 +330,7 @@ impl<C, T, S> Line<C, T, S> {
 }
 
 /// Line parts, containing code `C`, (label) text `T`, and style `S`.
+#[derive(Debug)]
 struct LineParts<C, T, S> {
     /// snake that comes from another line, potentially with text
     incoming: Option<(C, Option<T>, S)>,
