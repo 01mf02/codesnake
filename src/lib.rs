@@ -256,6 +256,7 @@ impl<C, T, S> Label<C, T, S> {
 }
 
 /// Piece of code together with its display width.
+#[derive(Debug)]
 pub struct CodeWidth<C> {
     code: C,
     width: usize,
@@ -299,6 +300,7 @@ impl<F: Fn(&mut Formatter) -> fmt::Result> Display for FromFn<F> {
     }
 }
 
+#[derive(Debug)]
 enum LabelKind<T> {
     None,
     Snake,
@@ -306,11 +308,13 @@ enum LabelKind<T> {
 }
 
 /// Sequence of lines, containing code `C`, (label) text `T`, and style `S`.
+#[derive(Debug)]
 pub struct Block<C, T, S> {
     lines: Vec<Line<C, T, S>>,
     paint: Paint<S>,
 }
 
+#[derive(Debug)]
 struct Line<C, T, S> {
     no: usize,
     parts: LineParts<C, T, S>,
@@ -326,6 +330,7 @@ impl<C, T, S> Line<C, T, S> {
 }
 
 /// Line parts, containing code `C`, (label) text `T`, and style `S`.
+#[derive(Debug)]
 struct LineParts<C, T, S> {
     /// snake that comes from another line, potentially with text
     incoming: Option<(C, Option<T>, S)>,
@@ -381,8 +386,17 @@ impl<'a, T, S: Default + Clone> Block<&'a str, T, S> {
                 }
             }
             let start = idx.get(code.start)?;
-            let end = idx.get(code.end)?;
+            let mut end = idx.get(code.end)?;
             debug_assert!(start.line_no <= end.line_no);
+
+            // if the end of the range is just at the beginning of a new line,
+            // then make the range end at the end of the previous line
+            // otherwise, we would produce an empty incoming line part,
+            // which could lead following parts in that line to be shifted
+            if end.bytes == 0 && code.start < code.end {
+                end = idx.get(code.end - 1)?;
+                debug_assert!(end.bytes == end.line.len());
+            }
 
             let mut parts = match lines.pop() {
                 Some((line_no, _line, parts)) if line_no == start.line_no => parts,

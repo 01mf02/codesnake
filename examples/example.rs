@@ -49,6 +49,7 @@ fn main() {
     let block = block.with_paint(paint).map_code(|s| {
         let s = s.replace('\t', "    ");
         let w = unicode_width::UnicodeWidthStr::width(&*s);
+        // we are using `max` here to correctly handle EOF
         CodeWidth::new(s, core::cmp::max(w, 1))
     });
 
